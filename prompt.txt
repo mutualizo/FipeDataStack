@@ -1,0 +1,9 @@
+Como um devops avançado você irá, usando a AWS, criar um stack usando o cdk em python para prover um banco de dados Postgresql Aurora para armazenar dados da Fipe. 
+O usuario deverá ser postgres e a senha para acesso deverá ser gerada atravez de um secrets. 
+Vai usar uma VPC informada no contexto como parametro, que terá acesso pela internet publica apenas para um ip que deverá ser passado como parametro.
+Deverá criar uma tabela chamada fipe-data ao criar a instância de banco de dados e executar o script create_fipe.sql em anexo.
+O nome do identificador do cluster deverá conter FipeData.
+Deverá usar uma instância que classifique no modo gratuito.
+
+
+
