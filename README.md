@@ -1,18 +1,41 @@
+## Pré-requisitos
+
+- [AWS CLI](https://aws.amazon.com/cli/) configurado com credenciais adequadas
+- [Node.js](https://nodejs.org/) (≥ 12.x)
+- [Python](https://www.python.org/) (≥ 3.10)
+- [AWS CDK](https://aws.amazon.com/cdk/) instalado globalmente: `npm install -g aws-cdk`
+- [Docker](https://www.docker.com/) (para construir a camada Lambda com psycopg2)
+
 ## Configuração de Credenciais AWS
 
-Você pode configurar as credenciais da AWS de duas maneiras:
+Este projeto utiliza exclusivamente o sistema de perfis do AWS CLI para gerenciar credenciais:
 
-1. **Usando o AWS CLI** (recomendado para desenvolvimento local):
+1. **Configurando um perfil AWS**:
    ```bash
-   aws configure
+   # Configurar um perfil AWS com todas as informações necessárias
+   aws configure --profile meu-perfil
+   
+   # Ou editar manualmente o arquivo ~/.aws/credentials:
+   [meu-perfil]
+   aws_access_key_id = AKIAXXXXXXXXXXXXXXXX
+   aws_secret_access_key = xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   region = us-east-1
    ```
 
-2. **Usando variáveis de ambiente**:
+2. **Definindo o perfil a ser usado para o deploy**:
    ```bash
-   export AWS_ACCESS_KEY_ID=sua_access_key
-   export AWS_SECRET_ACCESS_KEY=sua_secret_key
-   export AWS_REGION=us-east-1  # Substitua pela região desejada
-   ```# FipeData - Banco de Dados PostgreSQL Aurora na AWS
+   # Especificar o perfil a ser usado
+   export AWS_PROFILE=meu-perfil
+   
+   # Opcionalmente, sobrescrever a região do perfil
+   export AWS_REGION=us-east-2
+   ```
+
+O script exige que `AWS_PROFILE` seja definido e que o perfil contenha:
+- Credenciais AWS válidas (access key e secret key)
+- Uma região AWS válida (ou a variável `AWS_REGION` definida)
+
+A conta AWS será obtida automaticamente a partir do perfil utilizando a operação STS GetCallerIdentity.# FipeData - Banco de Dados PostgreSQL Aurora na AWS
 
 Este projeto utiliza AWS CDK em Python para provisionar um banco de dados PostgreSQL Aurora na AWS para armazenar dados da Tabela FIPE. A infraestrutura inclui uma instância PostgreSQL Aurora elegível para o tier gratuito, com acesso restrito a um IP específico.
 
@@ -25,15 +48,35 @@ A stack CDK cria os seguintes recursos:
 - Função Lambda para executar o script SQL inicial
 - Camada Lambda com a biblioteca psycopg2 para conectividade PostgreSQL
 
-## Pré-requisitos
+## Configuração de Credenciais AWS
 
-- [AWS CLI](https://aws.amazon.com/cli/) configurado com credenciais adequadas
-- [Node.js](https://nodejs.org/) (≥ 12.x)
-- [Python](https://www.python.org/) (≥ 3.10)
-- [AWS CDK](https://aws.amazon.com/cdk/) instalado globalmente: `npm install -g aws-cdk`
-- [Docker](https://www.docker.com/) (para construir a camada Lambda com psycopg2)
+Você pode configurar as credenciais da AWS de várias maneiras:
 
-## Estrutura do Projeto
+1. **Usando o AWS CLI** (recomendado para desenvolvimento local):
+   ```bash
+   aws configure
+   ```
+
+2. **Usando variáveis de ambiente para o perfil AWS**:
+   ```bash
+   # Método 1: Definir o perfil diretamente
+   export AWS_PROFILE=meu-perfil
+   
+   # Método 2: Definir o perfil apenas para o deploy do CDK
+   export CDK_DEPLOY_PROFILE=meu-perfil
+   ```
+
+3. **Usando variáveis de ambiente para credenciais específicas**:
+   ```bash
+   export AWS_ACCESS_KEY_ID="SUACHAVE"
+   export AWS_SECRET_ACCESS_KEY="SUASECRETA"
+   export AWS_DEFAULT_REGION="us-east-2"
+   ```
+
+O script vai procurar por credenciais na seguinte ordem:
+1. Perfil definido em `AWS_PROFILE`
+2. Perfil definido em `CDK_DEPLOY_PROFILE`
+3. Credenciais padrão (~/.aws/credentials ou variáveis de ambiente)
 
 ```
 fipe-data-cdk/
@@ -110,51 +153,54 @@ fipe-data-cdk/
    cdk deploy --context vpc_id=vpc-xxxxxxxx --context allowed_ip=123.456.789.0
    ```
 
-3. Escolha o estágio de implantação (dev, stg, prd):
+3. Escolha o estágio de implantação (dev, stg, prd) e o perfil AWS:
    
-   **Usando variável de ambiente:**
+   **Usando variável de ambiente para estágio:**
    ```bash
    export STACK_STAGE=dev  # ou stg ou prd
+   export AWS_PROFILE=meu-perfil  # Perfil do arquivo ~/.aws/credentials
    cdk deploy
    ```
    
-   **Ou passando como argumento:**
+   **Ou passando o estágio como argumento:**
    ```bash
-   # Para ambiente de desenvolvimento
+   # Para ambiente de desenvolvimento com perfil específico
+   export AWS_PROFILE=perfil-dev
    python app.py dev
    cdk deploy
    
-   # Para ambiente de staging
+   # Para ambiente de staging com outro perfil
+   export AWS_PROFILE=perfil-stg
    python app.py stg
    cdk deploy
    
-   # Para ambiente de produção
+   # Para ambiente de produção com perfil de produção
+   export AWS_PROFILE=perfil-prod
    python app.py prd
    cdk deploy
    ```
 
-3. Escolha o estágio de implantação (dev, stg, prd):
+3. Escolha o estágio de implantação (dev, stg, prd) e o perfil AWS:
    
-   **Usando variável de ambiente:**
-   ```bash
-   export STACK_STAGE=dev  # ou stg ou prd
-   cdk deploy
-   ```
-   
-   **Ou passando como argumento:**
    ```bash
    # Para ambiente de desenvolvimento
+   export AWS_PROFILE=perfil-dev
    python app.py dev
-   cdk deploy
+   cdk deploy --context vpc_id=vpc-xxxxxxxx --context allowed_ip=123.456.789.0
    
    # Para ambiente de staging
+   export AWS_PROFILE=perfil-stg
    python app.py stg
-   cdk deploy
+   cdk deploy --context vpc_id=vpc-xxxxxxxx --context allowed_ip=123.456.789.0
    
    # Para ambiente de produção
+   export AWS_PROFILE=perfil-prod
    python app.py prd
-   cdk deploy
+   cdk deploy --context vpc_id=vpc-xxxxxxxx --context allowed_ip=123.456.789.0
    ```
+
+   Cada ambiente (dev, stg, prd) pode ter seu próprio perfil AWS diferente,
+   permitindo implantações em contas AWS diferentes.
 
 3. Realize o deploy da stack:
    ```bash

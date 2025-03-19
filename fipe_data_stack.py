@@ -36,8 +36,8 @@ class FipeDataStack(Stack):
         
         # Obter o IP permitido do contexto
         allowed_ip = self.node.try_get_context("allowed_ip")
-        if not allowed_ip:
-            raise ValueError("allowed_ip deve ser fornecido no contexto")
+        # if not allowed_ip:
+        #     raise ValueError("allowed_ip deve ser fornecido no contexto")
         
         # Criar um grupo de segurança para o banco de dados
         db_security_group = ec2.SecurityGroup(
@@ -48,12 +48,13 @@ class FipeDataStack(Stack):
         )
         Tags.of(db_security_group).add("Stage", stage)
         
-        # Adicionar regra de entrada para permitir acesso PostgreSQL do IP específico
-        db_security_group.add_ingress_rule(
-            ec2.Peer.ipv4(f"{allowed_ip}/32"),
-            ec2.Port.tcp(5432),
-            description="PostgreSQL access from specific IP"
-        )
+        if bool(allowed_ip):
+            # Adicionar regra de entrada para permitir acesso PostgreSQL do IP específico
+            db_security_group.add_ingress_rule(
+                ec2.Peer.ipv4(f"{allowed_ip}/32"),
+                ec2.Port.tcp(5432),
+                description="PostgreSQL access from specific IP"
+            )
         
         # Criar grupo de segurança para a função Lambda
         lambda_security_group = ec2.SecurityGroup(
