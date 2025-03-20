@@ -1,4 +1,33 @@
-## Pré-requisitos
+## Notas sobre o Script SQL
+
+Este projeto utiliza uma abordagem otimizada para transferir o script SQL para a função Lambda:
+
+1. **Script SQL empacotado com a função Lambda**:
+   - O script SQL é incluído diretamente no pacote da função Lambda
+   - Armazenado no diretório `lambda/assets/create_fipe_db.sql`
+   - Eliminando a necessidade de acesso ao S3 ou uso de variáveis de ambiente grandes
+
+2. **Endpoint Secrets Manager**:
+   - Um endpoint de interface para Secrets Manager é criado automaticamente
+   - Necessário para permitir que a função Lambda acesse segredos na VPC
+
+Esta solução resolve o problema de timeout ao acessar o S3 e também evita 
+limitações de tamanho das variáveis de ambiente.## Notas sobre VPC Endpoints
+
+Este projeto utiliza uma abordagem otimizada para conexão com serviços AWS em VPCs:
+
+1. **Endpoint Secrets Manager**:
+   - Um endpoint de interface para Secrets Manager é criado automaticamente
+   - Necessário para permitir que a função Lambda acesse segredos na VPC
+
+2. **Endpoint S3**:
+   - O projeto **não** cria um endpoint S3 por padrão, assumindo que já existe um na VPC
+   - O script SQL é passado diretamente para a função Lambda via variáveis de ambiente
+   - Não há necessidade de acesso ao S3 durante a execução
+
+Essa abordagem resolve problemas comuns de conectividade em ambientes VPC, especialmente 
+quando os endpoints já estão configurados previamente na VPC ou quando há firewalls
+ou configurações de rede que podem causar problemas de conectividade.## Pré-requisitos
 
 - [AWS CLI](https://aws.amazon.com/cli/) configurado com credenciais adequadas
 - [Node.js](https://nodejs.org/) (≥ 12.x)
@@ -82,14 +111,14 @@ O script vai procurar por credenciais na seguinte ordem:
 fipe-data-cdk/
 ├── app.py                      # Ponto de entrada da aplicação CDK
 ├── fipe_data_stack.py          # Definição da stack principal
-├── create_fipe_db.sql          # Script SQL para criar as tabelas FIPE
-├── sql/                        # Diretório para scripts SQL
-│   └── create_fipe_db.sql      # Script SQL copiado para deploy no S3
+├── create_fipe_db.sql          # Script SQL original para criar as tabelas FIPE
 ├── README.md                   # Documentação principal
 ├── requirements.txt            # Dependências Python
 ├── lambda/                     # Código da função Lambda
 │   ├── index.py                # Handler da função Lambda
-│   └── cfnresponse.py          # Utilitário para responder a eventos CloudFormation
+│   ├── cfnresponse.py          # Utilitário para responder a eventos CloudFormation
+│   └── assets/                 # Assets empacotados com a função Lambda
+│       └── create_fipe_db.sql  # Cópia do script SQL
 └── lambda-layer/               # Camada Lambda para psycopg2
     └── README.md               # Instruções para preparar a camada Lambda
 ```
@@ -139,17 +168,10 @@ fipe-data-cdk/
 
 2. Configure os parâmetros de contexto para o deploy:
    ```bash
-   # Crie um arquivo cdk.context.json na raiz do projeto
-   cat > cdk.context.json << EOF
-   {
-     "vpc_id": "vpc-xxxxxxxx",
-     "allowed_ip": "123.456.789.0"
-   }
-   EOF
-   ```
-
-   Ou passe os parâmetros na linha de comando:
-   ```bash
+   # Parâmetros obrigatórios:
+   # - vpc_id: ID da VPC onde o banco de dados será criado
+   # - allowed_ip: Endereço IP que terá acesso ao banco de dados
+   
    cdk deploy --context vpc_id=vpc-xxxxxxxx --context allowed_ip=123.456.789.0
    ```
 

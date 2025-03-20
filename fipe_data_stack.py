@@ -14,8 +14,6 @@ from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_rds as rds
-from aws_cdk import aws_s3 as s3
-from aws_cdk import aws_s3_deployment as s3deploy
 from aws_cdk import aws_secretsmanager as secretsmanager
 from aws_cdk import custom_resources as cr
 
@@ -36,8 +34,8 @@ class FipeDataStack(Stack):
         
         # Obter o IP permitido do contexto
         allowed_ip = self.node.try_get_context("allowed_ip")
-        # if not allowed_ip:
-        #     raise ValueError("allowed_ip deve ser fornecido no contexto")
+        if not allowed_ip:
+            raise ValueError("allowed_ip deve ser fornecido no contexto")
         
         # Criar um grupo de segurança para o banco de dados
         db_security_group = ec2.SecurityGroup(
@@ -48,13 +46,12 @@ class FipeDataStack(Stack):
         )
         Tags.of(db_security_group).add("Stage", stage)
         
-        if bool(allowed_ip):
-            # Adicionar regra de entrada para permitir acesso PostgreSQL do IP específico
-            db_security_group.add_ingress_rule(
-                ec2.Peer.ipv4(f"{allowed_ip}/32"),
-                ec2.Port.tcp(5432),
-                description="PostgreSQL access from specific IP"
-            )
+        # Adicionar regra de entrada para permitir acesso PostgreSQL do IP específico
+        db_security_group.add_ingress_rule(
+            ec2.Peer.ipv4(f"{allowed_ip}/32"),
+            ec2.Port.tcp(5432),
+            description="PostgreSQL access from specific IP"
+        )
         
         # Criar grupo de segurança para a função Lambda
         lambda_security_group = ec2.SecurityGroup(
@@ -113,31 +110,33 @@ class FipeDataStack(Stack):
         script_dir = os.path.dirname(os.path.realpath(__file__))
         with open(os.path.join(script_dir, "create_fipe_db.sql"), "r") as file:
             sql_script = file.read()
+            
+        # Criar uma pasta no diretório lambda para incluir o script SQL
+        lambda_assets_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "lambda", "assets")
+        if not os.path.exists(lambda_assets_dir):
+            os.makedirs(lambda_assets_dir)
         
-        # Criar uma diretoria para o SQL script
-        sql_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "sql")
-        if not os.path.exists(sql_dir):
-            os.makedirs(sql_dir)
-        
-        # Salvar o SQL script no arquivo
-        with open(os.path.join(sql_dir, "create_fipe_db.sql"), "w") as file:
+        # Salvar o SQL script no diretório de assets do Lambda
+        with open(os.path.join(lambda_assets_dir, "create_fipe_db.sql"), "w") as file:
             file.write(sql_script)
+            
+        # Criar endpoints VPC para serviços AWS
+        # Endpoint para Secrets Manager
+        secretsmanager_endpoint = ec2.InterfaceVpcEndpoint(
+            self, f"SecretsManagerEndpoint-{stage}",
+            vpc=vpc,
+            service=ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
+            private_dns_enabled=True,
+            subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC)
+        )
+        Tags.of(secretsmanager_endpoint).add("Stage", stage)
         
-        # Criar um bucket S3 para armazenar o script SQL
-        sql_bucket = s3.Bucket(
-            self, f"SQLScriptBucket-{stage}",
-            removal_policy=RemovalPolicy.DESTROY,
-            auto_delete_objects=True
+        # Adicionar permissão para a função Lambda usar os endpoints
+        secretsmanager_endpoint.connections.allow_from(
+            lambda_security_group,
+            ec2.Port.tcp(443),
+            "Allow Lambda to access Secrets Manager through VPC endpoint"
         )
-        Tags.of(sql_bucket).add("Stage", stage)
-                
-        # Fazer deploy do script SQL para o bucket S3
-        sql_deployment = s3deploy.BucketDeployment(
-            self, f"DeploySQLScript-{stage}",
-            sources=[s3deploy.Source.asset("sql")],
-            destination_bucket=sql_bucket
-        )
-        Tags.of(sql_deployment).add("Stage", stage)
         
         # Criar um papel IAM para a função Lambda
         lambda_role = iam.Role(
@@ -150,35 +149,8 @@ class FipeDataStack(Stack):
         )
         Tags.of(lambda_role).add("Stage", stage)
         
-        # Conceder permissões para ler o segredo e o bucket S3
+        # Conceder permissões para ler o segredo
         db_credentials.grant_read(lambda_role)
-        sql_bucket.grant_read(lambda_role)
-        
-        # Criar endpoints VPC para serviços AWS
-        # Endpoint para Secrets Manager
-        secretsmanager_endpoint = ec2.InterfaceVpcEndpoint(
-            self, f"SecretsManagerEndpoint-{stage}",
-            vpc=vpc,
-            service=ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
-            private_dns_enabled=True,
-            subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC)
-        )
-        Tags.of(secretsmanager_endpoint).add("Stage", stage)
-        
-        # Endpoint para S3
-        s3_endpoint = ec2.GatewayVpcEndpoint(
-            self, f"S3Endpoint-{stage}",
-            vpc=vpc,
-            service=ec2.GatewayVpcEndpointAwsService.S3
-        )
-        Tags.of(s3_endpoint).add("Stage", stage)
-        
-        # Adicionar permissão para a função Lambda usar os endpoints
-        secretsmanager_endpoint.connections.allow_from(
-            lambda_security_group,
-            ec2.Port.tcp(443),
-            "Allow Lambda to access Secrets Manager through VPC endpoint"
-        )
         
         # Criar uma camada Lambda para o psycopg2
         psycopg2_layer = lambda_.LayerVersion(
@@ -188,6 +160,14 @@ class FipeDataStack(Stack):
             description=f"Camada contendo psycopg2 para conectividade PostgreSQL - {stage}"
         )
         Tags.of(psycopg2_layer).add("Stage", stage)
+        
+        # Construir um dicionário de variáveis de ambiente para a função Lambda
+        lambda_env = {
+            "DB_ENDPOINT": db_cluster.cluster_endpoint.hostname,
+            "DB_PORT": str(db_cluster.cluster_endpoint.port),
+            "SECRET_ARN": db_credentials.secret_arn,
+            "STAGE": stage
+        }
         
         # Criar a função Lambda para executar o script SQL
         sql_execution_lambda = lambda_.Function(
@@ -201,14 +181,7 @@ class FipeDataStack(Stack):
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
             allow_public_subnet=True,
             security_groups=[lambda_security_group],
-            environment={
-                "DB_ENDPOINT": db_cluster.cluster_endpoint.hostname,
-                "DB_PORT": str(db_cluster.cluster_endpoint.port),
-                "SECRET_ARN": db_credentials.secret_arn,
-                "SQL_BUCKET": sql_bucket.bucket_name,
-                "SQL_KEY": "create_fipe_db.sql",
-                "STAGE": stage
-            },
+            environment=lambda_env,
             role=lambda_role,
             layers=[psycopg2_layer]
         )
