@@ -1,0 +1,130 @@
+.PHONY: install bootstrap prepare-layers deploy-dev deploy-stg deploy-prd destroy-dev destroy-stg destroy-prd clean
+
+# Configuração
+STAGE ?= dev
+AWS_PROFILE ?= default
+VPC_ID ?= 
+ALLOWED_IP ?= 
+
+# Caminhos
+VENV_DIR = .venv
+LAMBDA_LAYER_DIR = lambda-layer/python/lib/python3.10/site-packages
+FIPE_API_LAYER_DIR = fipe_api_layer/python/lib/python3.10/site-packages
+SRC_DIR = src
+
+# Verificação de variáveis obrigatórias
+check-vpc-id:
+ifndef VPC_ID
+	$(error VPC_ID não está definido. Use 'make deploy-dev VPC_ID=vpc-xxxxxxxx')
+endif
+
+check-allowed-ip:
+ifndef ALLOWED_IP
+	$(error ALLOWED_IP não está definido. Use 'make deploy-dev ALLOWED_IP=123.456.789.0')
+endif
+
+check-aws-profile:
+ifndef AWS_PROFILE
+	$(error AWS_PROFILE não está definido. Use 'make deploy-dev AWS_PROFILE=meu-perfil')
+endif
+
+# Instalação e configuração
+install:
+	@echo "Instalando dependências..."
+	python -m pip install --upgrade pip
+	python -m pip install -r requirements.txt
+
+bootstrap:
+	@echo "Executando bootstrap do AWS CDK..."
+	cdk bootstrap --profile $(AWS_PROFILE)
+
+# Preparação das camadas Lambda
+prepare-lambda-layer:
+	@echo "Preparando camada Lambda para PostgreSQL..."
+	mkdir -p $(LAMBDA_LAYER_DIR)
+	pip install psycopg2-binary -t $(LAMBDA_LAYER_DIR)
+
+prepare-fipe-api-layer:
+	@echo "Preparando camada Lambda para API FIPE..."
+	mkdir -p $(FIPE_API_LAYER_DIR)
+	pip install -r requirements.txt -t $(FIPE_API_LAYER_DIR)
+
+prepare-lambda-code:
+	@echo "Preparando código fonte das funções Lambda..."
+	mkdir -p $(SRC_DIR)
+	cp -r soma-api-lambdas/src/fipe_api $(SRC_DIR)/
+
+prepare-layers: prepare-lambda-layer prepare-fipe-api-layer prepare-lambda-code
+
+# Deploy por ambiente
+deploy-dev: check-vpc-id check-allowed-ip check-aws-profile
+	@echo "Implantando no ambiente de desenvolvimento (dev)..."
+	export AWS_PROFILE=$(AWS_PROFILE) && \
+	export STACK_STAGE=dev && \
+	cdk deploy --context vpc_id=$(VPC_ID) --context allowed_ip=$(ALLOWED_IP)
+
+deploy-stg: check-vpc-id check-allowed-ip check-aws-profile
+	@echo "Implantando no ambiente de staging (stg)..."
+	export AWS_PROFILE=$(AWS_PROFILE) && \
+	export STACK_STAGE=stg && \
+	cdk deploy --context vpc_id=$(VPC_ID) --context allowed_ip=$(ALLOWED_IP)
+
+deploy-prd: check-vpc-id check-allowed-ip check-aws-profile
+	@echo "Implantando no ambiente de produção (prd)..."
+	export AWS_PROFILE=$(AWS_PROFILE) && \
+	export STACK_STAGE=prd && \
+	cdk deploy --context vpc_id=$(VPC_ID) --context allowed_ip=$(ALLOWED_IP)
+
+# Destroy por ambiente
+destroy-dev: check-aws-profile
+	@echo "Removendo recursos do ambiente de desenvolvimento (dev)..."
+	export AWS_PROFILE=$(AWS_PROFILE) && \
+	export STACK_STAGE=dev && \
+	cdk destroy
+
+destroy-stg: check-aws-profile
+	@echo "Removendo recursos do ambiente de staging (stg)..."
+	export AWS_PROFILE=$(AWS_PROFILE) && \
+	export STACK_STAGE=stg && \
+	cdk destroy
+
+destroy-prd: check-aws-profile
+	@echo "Removendo recursos do ambiente de produção (prd)..."
+	export AWS_PROFILE=$(AWS_PROFILE) && \
+	export STACK_STAGE=prd && \
+	cdk destroy
+
+# Limpeza
+clean:
+	@echo "Limpando diretórios temporários..."
+	rm -rf cdk.out
+	rm -rf lambda-layer/python
+	rm -rf fipe_api_layer/python
+
+# Instalação completa e deploy no ambiente de desenvolvimento
+all: install bootstrap prepare-layers deploy-dev
+
+# Exibir ajuda
+help:
+	@echo "Makefile para FipeDataStack com FipeApiStack"
+	@echo ""
+	@echo "Comandos disponíveis:"
+	@echo "  make install                 - Instala dependências"
+	@echo "  make bootstrap               - Bootstrap do AWS CDK"
+	@echo "  make prepare-layers          - Prepara camadas Lambda"
+	@echo "  make deploy-dev              - Deploy no ambiente dev"
+	@echo "  make deploy-stg              - Deploy no ambiente stg"
+	@echo "  make deploy-prd              - Deploy no ambiente prd"
+	@echo "  make destroy-dev             - Remove recursos do ambiente dev"
+	@echo "  make destroy-stg             - Remove recursos do ambiente stg"
+	@echo "  make destroy-prd             - Remove recursos do ambiente prd"
+	@echo "  make clean                   - Limpa diretórios temporários"
+	@echo "  make all                     - Instalação completa e deploy em dev"
+	@echo ""
+	@echo "Variáveis importantes:"
+	@echo "  AWS_PROFILE                  - Perfil AWS a ser usado"
+	@echo "  VPC_ID                       - ID da VPC onde os recursos serão criados"
+	@echo "  ALLOWED_IP                   - IP com permissão de acesso ao PostgreSQL"
+	@echo ""
+	@echo "Exemplo:"
+	@echo "  make deploy-dev AWS_PROFILE=meu-perfil VPC_ID=vpc-xxxxxxxx ALLOWED_IP=123.456.789.0"

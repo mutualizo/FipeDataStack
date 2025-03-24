@@ -63,6 +63,7 @@ env = Environment(
 )
 
 # Criar stack com o estágio especificado
+# O FipeApiStack será criado como um stack filho dentro do FipeDataStack
 FipeDataStack(app, f"FipeDataStack-{stage}", env=env, stage=stage)
 
 app.synth()
