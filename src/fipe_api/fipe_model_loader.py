@@ -3,7 +3,7 @@ import requests
 import os
 import logging
 import time
-from .fipe_api_service import FipeAPI
+from fipe_api_service import FipeAPI
 
 # Configure logger
 logger = logging.getLogger()

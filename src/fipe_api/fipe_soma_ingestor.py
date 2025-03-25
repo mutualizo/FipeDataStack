@@ -4,7 +4,7 @@ import logging
 import time
 import psycopg2
 from psycopg2 import sql
-from .get_db_password import get_db_password
+from get_db_password import get_db_password
 
 # Configure logger
 logger = logging.getLogger()
@@ -41,6 +41,9 @@ def get_db_connection():
             password=password
         )
         
+        # Desativar autocommit para controlar transações manualmente
+        conn.autocommit = False
+        
         logger.info("Conexão com o banco de dados estabelecida com sucesso")
         return conn
     except Exception as e:
@@ -61,34 +64,39 @@ def get_or_create_manufacturer(conn, manufacturer, manufacturer_code, vehicle_ty
         int: ID do fabricante
     """
     with conn.cursor() as cur:
-        # Verificar se o fabricante existe
-        logger.info(f"Verificando fabricante: {manufacturer}, código: {manufacturer_code}, tipo: {vehicle_type}")
-        cur.execute("""
-            SELECT id FROM public.fipe_vehicle_manufacturer 
-            WHERE name = %s AND code = %s AND vehicle_type = %s
-        """, (manufacturer, manufacturer_code, vehicle_type))
-        
-        result = cur.fetchone()
-        
-        if result:
-            # Fabricante existe, retornar o ID
-            logger.info(f"Fabricante encontrado com ID: {result[0]}")
-            return result[0]
-        
-        # Fabricante não existe, inserir novo registro
-        logger.info(f"Criando novo fabricante: {manufacturer}")
-        cur.execute("""
-            INSERT INTO public.fipe_vehicle_manufacturer 
-            (name, code, vehicle_type, create_date) 
-            VALUES (%s, %s, %s, NOW()) 
-            RETURNING id
-        """, (manufacturer, manufacturer_code, vehicle_type))
-        
-        manufacturer_id = cur.fetchone()[0]
-        conn.commit()
-        logger.info(f"Novo fabricante criado com ID: {manufacturer_id}")
-        
-        return manufacturer_id
+        try:
+            # Verificar se o fabricante existe
+            logger.info(f"Verificando fabricante: {manufacturer}, código: {manufacturer_code}, tipo: {vehicle_type}")
+            cur.execute("""
+                SELECT id FROM public.fipe_vehicle_manufacturer 
+                WHERE name = %s AND code = %s AND vehicle_type = %s
+            """, (manufacturer, manufacturer_code, vehicle_type))
+            
+            result = cur.fetchone()
+            
+            if result:
+                # Fabricante existe, retornar o ID
+                logger.info(f"Fabricante encontrado com ID: {result[0]}")
+                return result[0]
+            
+            # Fabricante não existe, inserir novo registro
+            logger.info(f"Criando novo fabricante: {manufacturer}")
+            cur.execute("""
+                INSERT INTO public.fipe_vehicle_manufacturer 
+                (name, code, vehicle_type, create_date) 
+                VALUES (%s, %s, %s, NOW()) 
+                RETURNING id
+            """, (manufacturer, manufacturer_code, vehicle_type))
+            
+            manufacturer_id = cur.fetchone()[0]
+            conn.commit()
+            logger.info(f"Novo fabricante criado com ID: {manufacturer_id}")
+            
+            return manufacturer_id
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Erro ao processar fabricante: {str(e)}")
+            raise
 
 def get_or_create_model(conn, model, model_code, manufacturer_id):
     """
@@ -104,34 +112,39 @@ def get_or_create_model(conn, model, model_code, manufacturer_id):
         int: ID do modelo
     """
     with conn.cursor() as cur:
-        # Verificar se o modelo existe
-        logger.info(f"Verificando modelo: {model}, código: {model_code}, fabricante ID: {manufacturer_id}")
-        cur.execute("""
-            SELECT id FROM public.fipe_vehicle_model 
-            WHERE name = %s AND code = %s AND manufacturer_id = %s
-        """, (model, model_code, manufacturer_id))
-        
-        result = cur.fetchone()
-        
-        if result:
-            # Modelo existe, retornar o ID
-            logger.info(f"Modelo encontrado com ID: {result[0]}")
-            return result[0]
-        
-        # Modelo não existe, inserir novo registro
-        logger.info(f"Criando novo modelo: {model}")
-        cur.execute("""
-            INSERT INTO public.fipe_vehicle_model 
-            (name, code, manufacturer_id, create_date) 
-            VALUES (%s, %s, %s, NOW()) 
-            RETURNING id
-        """, (model, model_code, manufacturer_id))
-        
-        model_id = cur.fetchone()[0]
-        conn.commit()
-        logger.info(f"Novo modelo criado com ID: {model_id}")
-        
-        return model_id
+        try:
+            # Verificar se o modelo existe
+            logger.info(f"Verificando modelo: {model}, código: {model_code}, fabricante ID: {manufacturer_id}")
+            cur.execute("""
+                SELECT id FROM public.fipe_vehicle_model 
+                WHERE name = %s AND code = %s AND manufacturer_id = %s
+            """, (str(model), str(model_code), manufacturer_id))
+            
+            result = cur.fetchone()
+            
+            if result:
+                # Modelo existe, retornar o ID
+                logger.info(f"Modelo encontrado com ID: {result[0]}")
+                return result[0]
+            
+            # Modelo não existe, inserir novo registro
+            logger.info(f"Criando novo modelo: {model}")
+            cur.execute("""
+                INSERT INTO public.fipe_vehicle_model 
+                (name, code, manufacturer_id, create_date) 
+                VALUES (%s, %s, %s, NOW()) 
+                RETURNING id
+            """, (str(model), str(model_code), manufacturer_id))
+            
+            model_id = cur.fetchone()[0]
+            conn.commit()
+            logger.info(f"Novo modelo criado com ID: {model_id}")
+            
+            return model_id
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Erro ao processar modelo: {str(e)}")
+            raise
 
 def insert_model_value(conn, data):
     """
@@ -142,8 +155,9 @@ def insert_model_value(conn, data):
         data: Dicionário contendo os dados do valor do modelo
     """
     with conn.cursor() as cur:
-        logger.info(f"Inserindo valor do modelo: {data['model']} {data['model_year_code']}")
         try:
+            logger.info(f"Inserindo valor do modelo: {data['model']} {data['model_year_code']}")
+            
             # Processar o valor FIPE para float
             fipe_value_str = str(data['fipe_value']).replace("R$ ", "").replace(".", "").replace(",", ".")
             fipe_value = float(fipe_value_str) if fipe_value_str else 0
@@ -154,10 +168,10 @@ def insert_model_value(conn, data):
                 WHERE model_id = %s AND fipe_code = %s AND 
                       manufacture_year = %s AND reference_month_code = %s
             """, (
-                data['model_id'], 
-                data['fipe_code'], 
-                data['model_year_code'], 
-                data['reference_month_code']
+                int(data['model_id']), 
+                str(data['fipe_code']), 
+                str(data['model_year_code']), 
+                str(data['reference_month_code']),
             ))
             
             existing_value = cur.fetchone()
@@ -183,25 +197,95 @@ def insert_model_value(conn, data):
                     )
                 """, (
                     f"{data['model']} {data['model_year_code']}",
-                    data['model_code'],
-                    data['model_id'],
-                    data['fipe_code'],
-                    data['manufacturer_id'],
-                    data['model_year_code'],
-                    data['reference_month'],
-                    data['reference_month_code'],
+                    str(data['model_code']),
+                    int(data['model_id']),
+                    str(data['fipe_code']),
+                    int(data['manufacturer_id']),
+                    str(data['model_year_code']),
+                    str(data['reference_month']),
+                    str(data['reference_month_code']),
                     fipe_value,
-                    data['fuel_type'],
-                    data['vehicle_type'],
+                    str(data['fuel_type']),
+                    int(data['vehicle_type']),
                     True
                 ))
             
             conn.commit()
             logger.info(f"Valor do modelo processado com sucesso: {data['model']} {data['model_year_code']}")
         except Exception as e:
-            logger.error(f"Erro ao inserir/atualizar valor do modelo: {str(e)}")
             conn.rollback()
+            logger.error(f"Erro ao inserir/atualizar valor do modelo: {str(e)}")
             raise
+
+def process_message(conn, record):
+    """
+    Processa uma única mensagem SQS.
+    
+    Args:
+        conn: Conexão com o banco de dados
+        record: Registro da mensagem SQS
+        
+    Returns:
+        bool: True se a mensagem foi processada com sucesso, False caso contrário
+    """
+    message_id = record["messageId"]
+    try:
+        logger.info(f"Processando mensagem: {message_id}")
+        
+        message_body = json.loads(record["body"])
+        logger.info(f"Conteúdo da mensagem: {json.dumps(message_body, ensure_ascii=False)[:500]}...")
+
+        # Preparar dados para processamento
+        data = {
+            "manufacturer": message_body.get("manufacturer", "Unknown"),
+            "manufacturer_code": message_body.get("manufacturer_code", 0),
+            "model": message_body.get("model", "Unknown"),
+            "model_code": message_body.get("model_code", 0),
+            "model_year_code": message_body.get("model_year_code", "Unknown"),
+            "reference_month": message_body.get("mesReferenciaAno", "Unknown"),
+            "reference_month_code": message_body.get("codigoTabelaReferencia", 0),
+            "fipe_value": message_body.get("fipe_value", "Unknown"),
+            "fipe_code": message_body.get("fipe_code", "Unknown"),
+            "fuel_type": message_body.get("fuel_type", "Unknown"),
+            "vehicle_type": message_body.get("vehicle_type", 0),
+        }
+        
+        # Validar dados obrigatórios
+        if not all([
+            data['manufacturer'], data['manufacturer_code'], data['model'], 
+            data['model_code'], data['fipe_code'], data['vehicle_type']
+        ]):
+            logger.error(f"Dados obrigatórios ausentes na mensagem {message_id}")
+            return False
+
+        # Obter ou criar fabricante - usando uma conexão nova para cada operação
+        data['manufacturer_id'] = get_or_create_manufacturer(
+            conn, 
+            data['manufacturer'], 
+            data['manufacturer_code'], 
+            data['vehicle_type']
+        )
+
+        # Obter ou criar modelo - usando uma conexão nova para cada operação
+        data['model_id'] = get_or_create_model(
+            conn, 
+            data['model'], 
+            data['model_code'], 
+            data['manufacturer_id']
+        )
+
+        # Inserir valor do modelo - usando uma conexão nova para cada operação
+        insert_model_value(conn, data)
+        
+        logger.info(f"Mensagem {message_id} processada com sucesso")
+        return True
+        
+    except (KeyError, json.JSONDecodeError) as e:
+        logger.error(f"Erro ao analisar mensagem {message_id}: {str(e)}")
+        return False
+    except Exception as e:
+        logger.error(f"Erro ao processar mensagem {message_id}: {str(e)}")
+        return False
 
 def lambda_handler(event, context):
     """
@@ -215,93 +299,48 @@ def lambda_handler(event, context):
         dict: Resultado do processamento, incluindo eventuais falhas
     """
     logger.info("Iniciando FipeSomaIngestor...")
+    
+    # Verificar variáveis de ambiente importantes
+    input_queue_url = os.environ.get("SQS_INPUT_URL")
+    if not input_queue_url:
+        logger.error("Variável de ambiente SQS_INPUT_URL não definida")
+        return {
+            "statusCode": 500,
+            "body": json.dumps("Erro: SQS_INPUT_URL não definida"),
+            "batchItemFailures": [{"itemIdentifier": record["messageId"]} for record in event["Records"]]
+        }
+    
+    logger.info(f"Usando fila de entrada: {input_queue_url}")
     logger.info(f"Processando {len(event['Records'])} mensagens da fila SQS...")
     
     batch_item_failures = []
-
-    # Estabelecer conexão com o banco de dados
-    try:
-        conn = get_db_connection()
-    except Exception as e:
-        logger.error(f"Falha ao conectar ao banco de dados: {str(e)}")
-        return {
-            "statusCode": 500,
-            "body": json.dumps("Falha na conexão com o banco de dados"),
-            "batchItemFailures": [{"itemIdentifier": record["messageId"]} for record in event["Records"]]
-        }
-
     total_processed = 0
-    
-    try:
-        for record in event["Records"]:
-            try:
-                message_id = record["messageId"]
-                logger.info(f"Processando mensagem: {message_id}")
-                
-                message_body = json.loads(record["body"])
-                logger.info(f"Conteúdo da mensagem: {json.dumps(message_body, ensure_ascii=False)[:500]}...")
 
-                # Preparar dados para processamento
-                data = {
-                    "manufacturer": message_body.get("manufacturer", "Unknown"),
-                    "manufacturer_code": message_body.get("manufacturer_code", 0),
-                    "model": message_body.get("model", "Unknown"),
-                    "model_code": message_body.get("model_code", 0),
-                    "model_year_code": message_body.get("model_year_code", "Unknown"),
-                    "reference_month": message_body.get("mesReferenciaAno", "Unknown"),
-                    "reference_month_code": message_body.get("codigoTabelaReferencia", 0),
-                    "fipe_value": message_body.get("fipe_value", "Unknown"),
-                    "fipe_code": message_body.get("fipe_code", "Unknown"),
-                    "fuel_type": message_body.get("fuel_type", "Unknown"),
-                    "vehicle_type": message_body.get("vehicle_type", 0),
-                }
-                
-                # Validar dados obrigatórios
-                if not all([
-                    data['manufacturer'], data['manufacturer_code'], data['model'], 
-                    data['model_code'], data['fipe_code'], data['vehicle_type']
-                ]):
-                    logger.error(f"Dados obrigatórios ausentes na mensagem {message_id}")
-                    batch_item_failures.append({"itemIdentifier": message_id})
-                    continue
-
-                # Obter ou criar fabricante
-                data['manufacturer_id'] = get_or_create_manufacturer(
-                    conn, 
-                    data['manufacturer'], 
-                    data['manufacturer_code'], 
-                    data['vehicle_type']
-                )
-
-                # Obter ou criar modelo
-                data['model_id'] = get_or_create_model(
-                    conn, 
-                    data['model'], 
-                    data['model_code'], 
-                    data['manufacturer_id']
-                )
-
-                # Inserir valor do modelo
-                insert_model_value(conn, data)
-                
-                logger.info(f"Mensagem {message_id} processada com sucesso")
+    for record in event["Records"]:
+        # Para cada mensagem, estabelecemos uma nova conexão
+        # Isso evita problemas de transações abortadas afetando mensagens subsequentes
+        conn = None
+        try:
+            conn = get_db_connection()
+            
+            # Processar a mensagem
+            success = process_message(conn, record)
+            
+            if success:
                 total_processed += 1
-
-            except (KeyError, json.JSONDecodeError) as e:
-                logger.error(f"Erro ao analisar mensagem {record['messageId']}: {str(e)}")
+            else:
                 batch_item_failures.append({"itemIdentifier": record["messageId"]})
-            except Exception as e:
-                logger.error(f"Erro ao processar mensagem {record['messageId']}: {str(e)}")
-                batch_item_failures.append({"itemIdentifier": record["messageId"]})
-
-    except Exception as e:
-        logger.error(f"Erro inesperado: {str(e)}")
-        batch_item_failures = [{"itemIdentifier": record["messageId"]} for record in event["Records"]]
-    
-    finally:
-        # Sempre fechar a conexão com o banco de dados
-        conn.close()
-        logger.info("Conexão com o banco de dados fechada")
+                
+        except Exception as e:
+            logger.error(f"Erro ao processar mensagem {record['messageId']}: {str(e)}")
+            batch_item_failures.append({"itemIdentifier": record["messageId"]})
+        finally:
+            # Fechar a conexão, garantindo que todas as transações sejam finalizadas
+            if conn:
+                try:
+                    conn.close()
+                except Exception as e:
+                    logger.error(f"Erro ao fechar conexão: {str(e)}")
 
     total_failures = len(batch_item_failures)
     total_records = len(event["Records"])

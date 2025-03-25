@@ -33,7 +33,7 @@ class FipeApiStack(NestedStack):
         print(f"Iniciando criação do FipeApiStack para o estágio: {stage}")
         print(f"Usando endpoint do banco de dados: {db_cluster_endpoint}")
         
-        # Criar um grupo de segurança para as funções Lambda
+        # Criar um grupo de segurança para a função Lambda que acessa o banco de dados
         lambda_security_group = ec2.SecurityGroup(
             self, f"FipeApiLambdaSecurityGroup-{stage}",
             vpc=vpc,
@@ -48,13 +48,31 @@ class FipeApiStack(NestedStack):
             self, f"FipeApiLambdaRole-{stage}",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSQSFullAccess")
+            ]
+        )
+        
+        # Permissões específicas para a Lambda que acessa o banco de dados
+        db_lambda_role = iam.Role(
+            self, f"FipeApiDBLambdaRole-{stage}",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaVPCAccessExecutionRole"),
                 iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole"),
                 iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSQSFullAccess")
             ]
         )
+        
+        # Adicionar permissão explícita para acessar o Secrets Manager
+        db_lambda_role.add_to_policy(iam.PolicyStatement(
+            actions=["secretsmanager:GetSecretValue"],
+            resources=[db_secret_arn]
+        ))
+        
         Tags.of(lambda_role).add("Stage", stage)
-        print(f"Role para as Lambdas criada: {lambda_role.role_name}")
+        Tags.of(db_lambda_role).add("Stage", stage)
+        print(f"Roles para as Lambdas criadas")
 
         # Extrair o nome do segredo do ARN
         # ARN formato: arn:aws:secretsmanager:region:account-id:secret:secret-name-suffix
@@ -65,8 +83,8 @@ class FipeApiStack(NestedStack):
             self, f"ImportedDBSecret-{stage}", 
             secret_name
         )
-        db_secret.grant_read(lambda_role)
-        print(f"Permissão para acessar o segredo do banco de dados concedida à role: {lambda_role.role_name}")
+        db_secret.grant_read(db_lambda_role)
+        print(f"Permissão para acessar o segredo do banco de dados concedida à role")
         
         # Configuração de DLQ (Dead Letter Queue) para lidar com mensagens não processadas
         manufacturer_dlq = sqs.Queue(
@@ -147,7 +165,7 @@ class FipeApiStack(NestedStack):
         # Variáveis de ambiente comuns para todas as Lambdas
         common_env = {
             "STAGE": stage,
-            "URL_FIPE": "https://veiculos.fipe.org.br/api/veiculos",
+            "URL_FIPE": "http://veiculos.fipe.org.br/api/veiculos",
         }
         
         # Variáveis de ambiente específicas para cada Lambda
@@ -178,7 +196,7 @@ class FipeApiStack(NestedStack):
             "DB_SECRET_ARN": db_secret_arn,
         }
         
-        # Criar as funções Lambda usando subredes PÚBLICAS (já que não há privadas)
+        # Criar as funções Lambda de API SEM VPC para acesso à internet
         print("Criando função FipeManufacturerLoader...")
         manufacturer_lambda = lambda_.Function(
             self, f"FipeManufacturerLoader-{stage}",
@@ -189,10 +207,6 @@ class FipeApiStack(NestedStack):
             timeout=Duration.minutes(5),
             memory_size=256,
             environment=manufacturer_loader_env,
-            vpc=vpc,
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),  # Usando subnet pública
-            allow_public_subnet=True,  # Permitir uso de subnet pública
-            security_groups=[lambda_security_group],
             role=lambda_role,
             layers=[lambda_layer],
             description="Função para carregar fabricantes da API FIPE"
@@ -211,10 +225,6 @@ class FipeApiStack(NestedStack):
             timeout=Duration.minutes(5),
             memory_size=256,
             environment=model_loader_env,
-            vpc=vpc,
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),  # Usando subnet pública
-            allow_public_subnet=True,  # Permitir uso de subnet pública
-            security_groups=[lambda_security_group],
             role=lambda_role,
             layers=[lambda_layer],
             description="Função para carregar modelos da API FIPE"
@@ -244,10 +254,6 @@ class FipeApiStack(NestedStack):
             timeout=Duration.minutes(5),
             memory_size=256,
             environment=price_loader_env,
-            vpc=vpc,
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),  # Usando subnet pública
-            allow_public_subnet=True,  # Permitir uso de subnet pública
-            security_groups=[lambda_security_group],
             role=lambda_role,
             layers=[lambda_layer],
             description="Função para carregar preços da API FIPE"
@@ -267,22 +273,22 @@ class FipeApiStack(NestedStack):
         )
         print(f"Fonte de evento SQS adicionada à Lambda {price_lambda.function_name}")
         
-        # A função ingestora requer acesso especial ao RDS
+        # A função ingestora CONTINUA usando VPC para acessar o banco de dados
         print("Criando função FipeSomaIngestor...")
         ingestor_lambda = lambda_.Function(
             self, f"FipeSomaIngestor-{stage}",
             function_name=f"FipeSomaIngestor-{stage}",
             runtime=lambda_.Runtime.PYTHON_3_10,
             code=lambda_.Code.from_asset("src/fipe_api", exclude=["__pycache__", "*.pyc"]),
-            handler="fipe_soma_ingestor_improved.lambda_handler",  # Usando o arquivo melhorado
+            handler="fipe_soma_ingestor.lambda_handler",  # Nome do handler corrigido
             timeout=Duration.minutes(5),
             memory_size=512,
             environment=ingestor_env,
             vpc=vpc,
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),  # Usando subnet pública
-            allow_public_subnet=True,  # Permitir uso de subnet pública
+            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
+            allow_public_subnet=True,
             security_groups=[lambda_security_group],
-            role=lambda_role,
+            role=db_lambda_role,
             layers=[lambda_layer],
             description="Função para ingerir dados da FIPE no banco de dados"
         )
