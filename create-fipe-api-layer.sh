@@ -5,6 +5,18 @@
 
 set -e  # Sair imediatamente se algum comando falhar
 
+echo "=== Criando camada Lambda otimizada para LambdaLayer ==="
+
+# Criar estrutura de diretórios
+mkdir -p lambda-layer/python/lib/python3.10/site-packages
+
+# Instalar apenas as dependências essenciais
+pip install psycopg2-binary -t lambda-layer/python/lib/python3.10/site-packages
+cd lambda-layer
+zip -r ../psycopg2-layer.zip python
+cd ..
+
+
 echo "=== Criando camada Lambda otimizada para FipeApiStack ==="
 
 # Definir diretórios e arquivos
