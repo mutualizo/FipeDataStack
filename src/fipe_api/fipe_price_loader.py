@@ -11,9 +11,25 @@ logger.setLevel(logging.INFO)
 
 
 def lambda_handler(event, context):
+
     fipe_api = FipeAPI()
     logger.info("Processing SQS messages...")
     output_queue_url = os.getenv("SQS_OUTPUT_URL")
+    batch_item_failures = []
+
+    # Função para enviar um lote de mensagens    
+    def send_batch(batch):
+        try:
+            logger.info(f"Enviando lote com {len(batch)} mensagens para {output_queue_url}")
+            failures = fipe_api.send_sqs_messages(output_queue_url, batch)  # Captura as falhas
+            batch_item_failures.extend(failures)  # Adiciona as falhas à lista de falhas
+            logger.info(f"Batch sent successfully.")
+        except Exception as e:
+            logger.error(f"Error sending batch to SQS: {e}")
+            # Se falhar ao enviar o lote, marcar todas as mensagens do lote como falhas
+            for record in event["Records"]:
+                batch_item_failures.append({"itemIdentifier": record["messageId"]})
+    
     
     if not output_queue_url:
         logger.error("Variável de ambiente SQS_OUTPUT_URL não definida")
@@ -26,9 +42,8 @@ def lambda_handler(event, context):
     logger.info(f"Usando fila de saída: {output_queue_url}")
 
     batch = []
-    batch_item_failures = []
 
-    for record in event["Records"]:
+    for index, record in enumerate(event["Records"], start=1):
         message_id = record["messageId"]
         try:
             message = json.loads(record["body"])
@@ -126,18 +141,15 @@ def lambda_handler(event, context):
         except Exception as e:
             logger.error(f"Erro não tratado ao processar mensagem {message_id}: {str(e)}")
             batch_item_failures.append({"itemIdentifier": message_id})
+            
+        if index % 10 == 0:
+            send_batch(batch)
+            batch.clear()
+            time.sleep()
 
     if batch:
-        try:
-            logger.info(f"Enviando lote com {len(batch)} mensagens para {output_queue_url}")
-            failures = fipe_api.send_sqs_messages(output_queue_url, batch)  # Captura as falhas
-            batch_item_failures.extend(failures)  # Adiciona as falhas à lista de falhas
-            logger.info(f"Batch sent successfully.")
-        except Exception as e:
-            logger.error(f"Error sending batch to SQS: {e}")
-            # Se falhar ao enviar o lote, marcar todas as mensagens do lote como falhas
-            for record in event["Records"]:
-                batch_item_failures.append({"itemIdentifier": record["messageId"]})
+        send_batch(batch)
+        
 
     total_failures = len(batch_item_failures)
     total_records = len(event["Records"])

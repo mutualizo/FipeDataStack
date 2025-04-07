@@ -17,38 +17,43 @@ def get_db_connection():
     Returns:
         Connection: Conexão com o banco de dados PostgreSQL
     """
-    try:
-        # Obter as informações de conexão das variáveis de ambiente
-        host = os.environ.get("RDS_HOST")
-        port = os.environ.get("RDS_PORT")
-        database = os.environ.get("RDS_DATABASE")
-        user = os.environ.get("RDS_USER")
-        
-        if not all([host, port, database, user]):
-            raise ValueError("Variáveis de ambiente para conexão com o banco de dados não definidas")
-        
-        # Obter a senha do Secrets Manager
-        password = get_db_password()
-        
-        logger.info(f"Tentando conexão com o banco de dados: {host}:{port}/{database} como {user}")
-        
-        # Construir a string de conexão com o banco de dados
-        conn = psycopg2.connect(
-            host=host,
-            port=port,
-            dbname=database,
-            user=user,
-            password=password
-        )
-        
-        # Desativar autocommit para controlar transações manualmente
-        conn.autocommit = False
-        
-        logger.info("Conexão com o banco de dados estabelecida com sucesso")
-        return conn
-    except Exception as e:
-        logger.error(f"Erro de conexão com o banco de dados: {str(e)}")
-        raise
+
+    # Obter as informações de conexão das variáveis de ambiente
+    host = os.environ.get("RDS_HOST")
+    port = os.environ.get("RDS_PORT")
+    database = os.environ.get("RDS_DATABASE")
+    user = os.environ.get("RDS_USER")
+    
+    if not all([host, port, database, user]):
+        raise ValueError("Variáveis de ambiente para conexão com o banco de dados não definidas")
+    
+    # Obter a senha do Secrets Manager
+    password = get_db_password()
+    
+    logger.info(f"Tentando conexão com o banco de dados: {host}:{port}/{database} como {user}")
+    
+    # Conectar ao banco de dados
+    is_connected = False
+    attempts = 1
+    conn = None
+    while not is_connected and attempts < 5:
+        try:
+            conn = psycopg2.connect(
+				host=host,
+				port=port,
+				dbname=database,
+				user=user,
+				password=password
+			)
+            is_connected = True
+            logger.info("Conexão com o banco de dados estabelecida com sucesso")
+            # Desativar autocommit para controlar transações manualmente
+            conn.autocommit = False
+        except Exception as e:
+            logger.error(f"Erro de conexão com o banco de dados na tentativa {attempts}: {str(e)}")
+            time.sleep(1)
+        attempts += 1
+    return conn
 
 def get_or_create_manufacturer(conn, manufacturer, manufacturer_code, vehicle_type):
     """
@@ -237,25 +242,45 @@ def process_message(conn, record):
 
         # Preparar dados para processamento
         data = {
-            "manufacturer": message_body.get("manufacturer", "Unknown"),
-            "manufacturer_code": message_body.get("manufacturer_code", 0),
-            "model": message_body.get("model", "Unknown"),
-            "model_code": message_body.get("model_code", 0),
-            "model_year_code": message_body.get("model_year_code", "Unknown"),
-            "reference_month": message_body.get("mesReferenciaAno", "Unknown"),
-            "reference_month_code": message_body.get("codigoTabelaReferencia", 0),
-            "fipe_value": message_body.get("fipe_value", "Unknown"),
-            "fipe_code": message_body.get("fipe_code", "Unknown"),
-            "fuel_type": message_body.get("fuel_type", "Unknown"),
-            "vehicle_type": message_body.get("vehicle_type", 0),
+            "manufacturer": message_body.get("manufacturer", False),
+            "manufacturer_code": message_body.get("manufacturer_code", False),
+            "model": message_body.get("model", False),
+            "model_code": message_body.get("model_code", False),
+            "model_year_code": message_body.get("model_year_code", False),
+            "reference_month": message_body.get("mesReferenciaAno", False),
+            "reference_month_code": message_body.get("codigoTabelaReferencia", False),
+            "fipe_value": message_body.get("fipe_value", False),
+            "fipe_code": message_body.get("fipe_code", False),
+            "fuel_type": message_body.get("fuel_type", False),
+            "vehicle_type": message_body.get("vehicle_type", False),
         }
         
-        # Validar dados obrigatórios
-        if not all([
-            data['manufacturer'], data['manufacturer_code'], data['model'], 
-            data['model_code'], data['fipe_code'], data['vehicle_type']
-        ]):
-            logger.error(f"Dados obrigatórios ausentes na mensagem {message_id}")
+        # Validar dados obrigatórios]
+        not_included = [] 
+        if data.get('manufacturer', False) == False:
+            not_included.append('manufacturer')
+
+        if data.get('manufacturer_code', False) == False:
+            not_included.append('manufacturer_code')
+
+        if data.get('model', False) == False:
+            not_included.append('model')
+
+        if data.get('model_code', False) == False:
+            not_included.append('model_code')
+
+        if data.get('fipe_code', False) == False:
+            not_included.append('fipe_code')
+
+        if data.get('vehicle_type', False) == False:
+            not_included.append('vehicle_type')
+
+        if not_included:
+            logger.error(f"Dados obrigatórios ausentes na mensagem {message_id}: {not_included}")
+            return False
+
+        if not bool(conn):
+            logger.error(f"Não foi possível processar a mensagem {message_id}: Conexão com o banco de dados inválida.")
             return False
 
         # Obter ou criar fabricante - usando uma conexão nova para cada operação
@@ -281,7 +306,7 @@ def process_message(conn, record):
         return True
         
     except (KeyError, json.JSONDecodeError) as e:
-        logger.error(f"Erro ao analisar mensagem {message_id}: {str(e)}")
+        logger.error(f"Erro de decodificação da mensagem {message_id}: {str(e)}")
         return False
     except Exception as e:
         logger.error(f"Erro ao processar mensagem {message_id}: {str(e)}")
@@ -319,38 +344,39 @@ def lambda_handler(event, context):
     for record in event["Records"]:
         # Para cada mensagem, estabelecemos uma nova conexão
         # Isso evita problemas de transações abortadas afetando mensagens subsequentes
-        conn = None
-        try:
-            conn = get_db_connection()
-            
+
+        conn = get_db_connection()
+        success = False
+        
+        if bool(conn):
             # Processar a mensagem
             success = process_message(conn, record)
+            try:
+                # Fechar a conexão, garantindo que todas as transações sejam finalizadas
+                conn.close()
+            except Exception as e:
+                logger.error(f"Erro ao fechar conexão: {str(e)}")
+        else:
+            logger.error("Erro fatal ao estabelecer conexão com o banco de dados")
             
-            if success:
-                total_processed += 1
-            else:
-                batch_item_failures.append({"itemIdentifier": record["messageId"]})
-                
-        except Exception as e:
+        if success:
+            total_processed += 1
+        else:
+            batch_item_failures.append({"itemIdentifier": record["messageId"]})
             logger.error(f"Erro ao processar mensagem {record['messageId']}: {str(e)}")
             batch_item_failures.append({"itemIdentifier": record["messageId"]})
-        finally:
-            # Fechar a conexão, garantindo que todas as transações sejam finalizadas
-            if conn:
-                try:
-                    conn.close()
-                except Exception as e:
-                    logger.error(f"Erro ao fechar conexão: {str(e)}")
 
     total_failures = len(batch_item_failures)
     total_records = len(event["Records"])
     success_count = total_records - total_failures
     
-    logger.info(f"Processamento concluído: {success_count}/{total_records} mensagens processadas com sucesso")
-    logger.info(f"Total de valores FIPE processados: {total_processed}")
+    logger.info(f""">>> Resumo do Processamento Concluído:\n
+    - {total_processed} total de valores FIPE processados;\n
+	- {success_count}/{total_records} mensagens processadas com sucesso;\n
+	- {total_failures}/{total_records} mensagens processadas com falhas;""")
     
     if total_failures > 0:
-        logger.warning(f"{total_failures} mensagens não puderam ser processadas")
+        logger.warning(f"{total_failures} mensagens não puderam ser processadas;")
 
     return {
         "statusCode": 200,

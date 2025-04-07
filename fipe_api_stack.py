@@ -14,6 +14,8 @@ from aws_cdk import aws_iam as iam
 from aws_cdk import aws_sqs as sqs
 from aws_cdk import aws_lambda_event_sources as lambda_event_sources
 from aws_cdk import aws_secretsmanager as secretsmanager
+from aws_cdk import aws_events as events
+from aws_cdk import aws_events_targets as targets
 
 class FipeApiStack(NestedStack):
     def __init__(self, scope: Construct, construct_id: str, 
@@ -172,6 +174,7 @@ class FipeApiStack(NestedStack):
         manufacturer_loader_env = {
             **common_env,
             "SQS_OUTPUT_URL": manufacturer_queue.queue_url,
+            "TEST": "false",
         }
         
         model_loader_env = {
@@ -214,6 +217,31 @@ class FipeApiStack(NestedStack):
         Tags.of(manufacturer_lambda).add("Stage", stage)
         Tags.of(manufacturer_lambda).add("Function", "FipeManufacturerLoader")
         print(f"Lambda FipeManufacturerLoader criada: {manufacturer_lambda.function_name}")
+        
+        # Criar uma regra de CloudWatch Events para executar a lambda no primeiro dia de cada mês
+        monthly_rule = events.Rule(
+            self, f"FipeManufacturerMonthlyRule-{stage}",
+            schedule=events.Schedule.cron(
+                minute="0",
+                hour="4",
+                day="1",
+                month="*",
+                year="*"
+            ),
+            description=f"Executa a lambda FipeManufacturerLoader no dia 1 de cada mês - {stage}"
+        )
+        
+        # Adicionar a Lambda como alvo da regra
+        monthly_rule.add_target(targets.LambdaFunction(manufacturer_lambda))
+        
+        # Adicionar permissões para que o CloudWatch Events possa invocar a Lambda
+        manufacturer_lambda.add_permission(
+            f"AllowEventBridgeInvoke-{stage}",
+            principal=iam.ServicePrincipal("events.amazonaws.com"),
+            source_arn=monthly_rule.rule_arn
+        )
+        
+        print(f"Regra CloudWatch Events criada para execução mensal da Lambda FipeManufacturerLoader")
         
         print("Criando função FipeModelLoader...")
         model_lambda = lambda_.Function(
@@ -348,6 +376,12 @@ class FipeApiStack(NestedStack):
             self, f"FipeManufacturerLambda-{stage}",
             value=manufacturer_lambda.function_name,
             description=f"Nome da função Lambda para carregamento de fabricantes - {stage}"
+        )
+        
+        CfnOutput(
+            self, f"MonthlyEventRuleArn-{stage}",
+            value=monthly_rule.rule_arn,
+            description=f"ARN da regra CloudWatch Events para execução mensal - {stage}"
         )
         
         print(f"Criação do FipeApiStack concluída com sucesso para o estágio: {stage}")

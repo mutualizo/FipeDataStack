@@ -15,6 +15,7 @@ def process_vehicle_types(is_local=False, local_output_file=None):
     fipe_api = FipeAPI()
     queue_url = os.getenv('SQS_OUTPUT_URL')
     stage = os.getenv('STAGE')
+    test = os.getenv('TEST')
     
     if not queue_url and not is_local:
         error_msg = "Variável de ambiente SQS_OUTPUT_URL não definida"
@@ -47,8 +48,8 @@ def process_vehicle_types(is_local=False, local_output_file=None):
             print(f"Found {len(brands)} brands for vehicle type {vehicle_type}.")
 
             for index, brand in enumerate(brands, start=1):
-                if stage == 'dev' and index > 3:
-                    print(f"Skipping brand {brand.get('Label')} for vehicle type {vehicle_type} in dev stage.")
+                if test == 'true' and index > 3:
+                    print(f"Skipping brand {brand.get('Label')} for vehicle type {vehicle_type} in dev test.")
                     continue
                 brand_code = str(brand.get('Value'))
                 brand_name = str(brand.get('Label'))
