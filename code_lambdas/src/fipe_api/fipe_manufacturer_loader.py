@@ -2,7 +2,7 @@ import os
 import time
 import json
 import argparse
-from .fipe_api_service import FipeAPI
+from fipe_api_service import FipeAPI
 
 def process_vehicle_types(is_local=False, local_output_file=None):
     """
