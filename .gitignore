@@ -15,3 +15,4 @@ cdk.out
 
 lambda-layer/python
 fipe_api_layer/python
+.settings

@@ -18,39 +18,56 @@ print(f"Implantando no estágio: {stage}")
 
 # Verificar se um perfil AWS específico foi fornecido
 aws_profile = os.environ.get('AWS_PROFILE')
-if not aws_profile:
-    print("AWS_PROFILE não definido.")
-    print("Por favor, defina a variável AWS_PROFILE com o nome do seu perfil AWS.")
-    sys.exit(1)
+# if not aws_profile:
+#     print("AWS_PROFILE não definido.")
+#     print("Por favor, defina a variável AWS_PROFILE com o nome do seu perfil AWS.")
+#     sys.exit(1)
+if aws_profile:
+    print(f"Usando perfil AWS: {aws_profile}")
 
-print(f"Usando perfil AWS: {aws_profile}")
-
-# Obter região e conta do perfil AWS
-try:
-    # Configurar boto3 com o perfil
-    session = boto3.Session(profile_name=aws_profile)
-    
-    # Obter a região do perfil (ou usar a variável de ambiente como fallback)
-    aws_region = os.environ.get('AWS_REGION') or os.environ.get('AWS_DEFAULT_REGION') or session.region_name
-    if not aws_region:
-        print("Região AWS não encontrada no perfil e AWS_REGION não está definido.")
-        print("Por favor, defina a região no perfil AWS ou use a variável AWS_REGION.")
-        sys.exit(1)
-    
-    # Obter a conta AWS do perfil
+    # Obter região e conta do perfil AWS
     try:
-        aws_account = session.client('sts').get_caller_identity().get('Account')
-        if not aws_account:
-            raise ValueError("Não foi possível obter a conta AWS do perfil")
-    except ClientError as e:
-        print(f"Erro ao obter conta AWS do perfil: {str(e)}")
-        print("Verifique se o perfil tem credenciais válidas.")
+        # Configurar boto3 com o perfil
+        session = boto3.Session(profile_name=aws_profile)
+        
+        # Obter a região do perfil (ou usar a variável de ambiente como fallback)
+        aws_region = os.environ.get('AWS_REGION') or os.environ.get('AWS_DEFAULT_REGION') or session.region_name
+        if not aws_region:
+            print("Região AWS não encontrada no perfil e AWS_REGION não está definido.")
+            print("Por favor, defina a região no perfil AWS ou use a variável AWS_REGION.")
+            sys.exit(1)
+        
+        # Obter a conta AWS do perfil
+        try:
+            aws_account = session.client('sts').get_caller_identity().get('Account')
+            if not aws_account:
+                raise ValueError("Não foi possível obter a conta AWS do perfil")
+        except ClientError as e:
+            print(f"Erro ao obter conta AWS do perfil: {str(e)}")
+            print("Verifique se o perfil tem credenciais válidas.")
+            sys.exit(1)
+        
+    except Exception as e:
+        print(f"Erro ao usar perfil AWS '{aws_profile}': {str(e)}")
+        print("Verifique se o perfil existe e tem credenciais válidas.")
         sys.exit(1)
-    
-except Exception as e:
-    print(f"Erro ao usar perfil AWS '{aws_profile}': {str(e)}")
-    print("Verifique se o perfil existe e tem credenciais válidas.")
-    sys.exit(1)
+else:
+
+    # Configuração das credenciais da AWS a partir de variáveis de ambiente
+    aws_access_key_id = os.environ.get('AWS_ACCESS_KEY_ID')
+    aws_secret_access_key = os.environ.get('AWS_SECRET_ACCESS_KEY')
+    aws_region = os.environ.get('AWS_REGION', 'us-east-1')
+
+    if aws_access_key_id and aws_secret_access_key:
+        print("Usando credenciais AWS das variáveis de ambiente")
+        boto3.setup_default_session(
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            region_name=aws_region
+        )
+        sts_client = boto3.client('sts')
+        aws_account = sts_client.get_caller_identity().get('Account')
+
 
 print(f"Região AWS: {aws_region}")
 print(f"Conta AWS: {aws_account}")

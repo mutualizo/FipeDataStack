@@ -24,9 +24,3 @@ Além das funções de suporte:
 
 __version__ = '1.0.0'
 
-from . import fipe_manufacturer_loader
-from . import fipe_model_loader
-from . import fipe_price_loader
-from . import fipe_soma_ingestor
-from . import fipe_api_service
-from . import get_db_password
