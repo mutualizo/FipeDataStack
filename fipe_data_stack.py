@@ -17,6 +17,9 @@ from aws_cdk import aws_rds as rds
 from aws_cdk import aws_secretsmanager as secretsmanager
 from aws_cdk import custom_resources as cr
 
+# Importar o stack filho FipeApiStack
+from fipe_api_stack import FipeApiStack
+
 class FipeDataStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, stage: str = "dev", **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -226,3 +229,28 @@ class FipeDataStack(Stack):
             value=stage,
             description="Estágio da implantação (dev, stg, prd)"
         )
+        
+        # Criar o stack filho FipeApiStack
+        print(f"Criando stack filho FipeApiStack para o estágio: {stage}")
+        fipe_api_stack = FipeApiStack(
+            self, 
+            f"FipeApiStack-{stage}",
+            vpc=vpc,
+            db_cluster_endpoint=db_cluster.cluster_endpoint.hostname,
+            db_cluster_port=str(db_cluster.cluster_endpoint.port),
+            db_secret_arn=db_credentials.secret_arn,
+            stage=stage
+        )
+        
+        # Permitir que o grupo de segurança das Lambdas do FipeApiStack acesse o banco de dados
+        db_security_group.add_ingress_rule(
+            ec2.SecurityGroup.from_security_group_id(
+                self, 
+                f"ImportedFipeApiSG-{stage}", 
+                security_group_id=fipe_api_stack.node.find_child(f"FipeApiLambdaSecurityGroup-{stage}").security_group_id
+            ),
+            ec2.Port.tcp(5432),
+            "Allow FipeApi Lambda functions to connect to database"
+        )
+        
+        print(f"Stack filho FipeApiStack criado com sucesso para o estágio: {stage}")

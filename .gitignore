@@ -11,6 +11,8 @@ cdk.out
 
 .project
 .pydevproject
-psycopg2-layer.zip
+*.zip
 
 lambda-layer/python
+fipe_api_layer/python
+.settings
