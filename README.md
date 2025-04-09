@@ -65,9 +65,10 @@ As seguintes melhorias foram implementadas para garantir robustez e manutenibili
 
 ## Configuração de Credenciais AWS
 
-Este projeto utiliza exclusivamente o sistema de perfis do AWS CLI para gerenciar credenciais:
+Este projeto utiliza o sistema de perfis do AWS CLI para gerenciar credenciais, ou a passagem de perfil por variável de ambiente:
 
-1. **Configurando um perfil AWS**:
+a) **Via perfil do AWS CLI:
+   1. **Configurando um perfil AWS**:
    ```bash
    # Configurar um perfil AWS com todas as informações necessárias
    aws configure --profile meu-perfil
@@ -79,7 +80,7 @@ Este projeto utiliza exclusivamente o sistema de perfis do AWS CLI para gerencia
    region = us-east-1
    ```
 
-2. **Definindo o perfil a ser usado para o deploy**:
+   2. **Definindo o perfil a ser usado para o deploy**:
    ```bash
    # Especificar o perfil a ser usado
    export AWS_PROFILE=meu-perfil
@@ -88,11 +89,25 @@ Este projeto utiliza exclusivamente o sistema de perfis do AWS CLI para gerencia
    export AWS_REGION=us-east-2
    ```
 
-O script exige que `AWS_PROFILE` seja definido e que o perfil contenha:
-- Credenciais AWS válidas (access key e secret key)
-- Uma região AWS válida (ou a variável `AWS_REGION` definida)
+   O script exige que `AWS_PROFILE` seja definido e que o perfil contenha:
+   - Credenciais AWS válidas (access key e secret key)
+   - Uma região AWS válida (ou a variável `AWS_REGION` definida)
 
-A conta AWS será obtida automaticamente a partir do perfil utilizando a operação STS GetCallerIdentity.
+   A conta AWS será obtida automaticamente a partir do perfil utilizando a operação STS GetCallerIdentity.
+
+b) **Via perfil por variável de ambiente
+   1. **Definição dos dados de credenciais via variável de ambiente:
+   ```bash
+   # Especificar a chave de acesso
+   export AWS_ACCESS_KEY_ID=minha-chave-de-acesso
+   
+   # Especificar a chave de acesso
+   export AWS_SECRET_ACCESS_KEY=meu-segredo-de-acesso
+   
+   # Opcionalmente, sobrescrever a região do perfil
+   export AWS_REGION=us-east-2
+   ```
+   
 
 ## Estrutura do Projeto
 
