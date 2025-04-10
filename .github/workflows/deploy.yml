@@ -6,6 +6,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: Developer
     env:
       STACK_STAGE: ${{ vars.STACK_STAGE }}
 
