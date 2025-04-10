@@ -145,7 +145,7 @@ def lambda_handler(event, context):
         if index % 10 == 0:
             send_batch(batch)
             batch.clear()
-            time.sleep()
+            time.sleep(0.5)
 
     if batch:
         send_batch(batch)
