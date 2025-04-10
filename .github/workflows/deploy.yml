@@ -32,6 +32,11 @@ jobs:
           pip install -r requirements.txt
           npm install -g aws-cdk
 
+      - name: Install Layers for Lambdas
+        run: |
+          chmod +x ./install-layers.sh
+          ./install-layers.sh
+
       - name: Bootstrap CDK Environment
         run: |
           cdk bootstrap aws://$(aws sts get-caller-identity --query Account --output text)/${{ vars.AWS_REGION }}
