@@ -35,8 +35,8 @@ jobs:
       - name: Install Layers for Lambdas
         run: |
           ls -la
-          chmod +x ./install-layers.sh
-          ./install-layers.sh
+          chmod +x ./create-fipe-api-layer.sh
+          ./create-fipe-api-layer.sh
 
       - name: Bootstrap CDK Environment
         run: |
