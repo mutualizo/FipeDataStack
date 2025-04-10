@@ -34,6 +34,7 @@ jobs:
 
       - name: Install Layers for Lambdas
         run: |
+          ls -la
           chmod +x ./install-layers.sh
           ./install-layers.sh
 
