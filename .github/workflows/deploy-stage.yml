@@ -1,0 +1,51 @@
+name: Deploy CDK Python Stack - Stage
+
+on:
+  workflow_dispatch:  # Executa somente quando acionada manualmente via GitHub Actions
+#  push:
+#    branches:
+#      - stage
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: stage
+    env:
+      STACK_STAGE: ${{ vars.STACK_STAGE }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'  # ajuste conforme necessário
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          npm install -g aws-cdk
+
+      - name: Install Layers for Lambdas
+        run: |
+          ls -la
+          chmod +x ./create-fipe-api-layer.sh
+          ./create-fipe-api-layer.sh
+
+      - name: Bootstrap CDK Environment
+        run: |
+          cdk bootstrap aws://$(aws sts get-caller-identity --query Account --output text)/${{ vars.AWS_REGION }}
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+
+      - name: Deploy CDK Stack
+        run: cdk deploy --context vpc_id=${{ vars.VCP_ID }} --require-approval never --verbose
