@@ -1,12 +1,15 @@
-name: Deploy CDK Python Stack
+name: Deploy CDK Python Stack - Development
 
 on:
   workflow_dispatch:  # Executa somente quando acionada manualmente via GitHub Actions
+  push:
+    branches:
+      - development
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: Developer
+    environment: development
     env:
       STACK_STAGE: ${{ vars.STACK_STAGE }}
 
