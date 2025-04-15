@@ -3,8 +3,9 @@ import time
 import json
 import argparse
 from fipe_api_service import FipeAPI
+from pip._vendor.pygments.unistring import Pe
 
-def process_vehicle_types(is_local=False, local_output_file=None):
+def process_vehicle_types(is_local=False, local_output_file=None, period=None):
     """
     Função principal que processa os tipos de veículos
     
@@ -12,7 +13,7 @@ def process_vehicle_types(is_local=False, local_output_file=None):
         is_local (bool): Indica se está rodando localmente
         local_output_file (str): Caminho para arquivo de saída local (quando is_local=True)
     """
-    fipe_api = FipeAPI()
+    fipe_api = FipeAPI(period=period)
     queue_url = os.getenv('SQS_OUTPUT_URL')
     stage = os.getenv('STAGE')
     test = os.getenv('TEST')
@@ -102,7 +103,12 @@ def lambda_handler(event, context):
     """
     Handler para AWS Lambda
     """
-    return process_vehicle_types(is_local=False)
+    
+    # Extrair os parâmetros do evento
+    mes = int(event.get('mes', 0))
+    ano = int(event.get('ano', 0))
+        
+    return process_vehicle_types(is_local=False, period=(mes, ano))
 
 if __name__ == "__main__":
     """

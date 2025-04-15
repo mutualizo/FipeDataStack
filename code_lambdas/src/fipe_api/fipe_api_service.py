@@ -5,35 +5,69 @@ import os
 import time
 import logging
 
+def mes_ano_formatado(mes, ano):
+    # Dicionário com os nomes dos meses em português
+    meses = {
+        1: "janeiro",
+        2: "fevereiro",
+        3: "março",
+        4: "abril",
+        5: "maio",
+        6: "junho",
+        7: "julho",
+        8: "agosto",
+        9: "setembro",
+        10: "outubro",
+        11: "novembro",
+        12: "dezembro"
+    }
+    
+    # Verificar se o mês está dentro do intervalo válido (1-12)
+    if mes < 1 or mes > 12:
+        raise ValueError("Mês deve estar entre 1 e 12")
+    
+    # Retornar a string formatada
+    return f"{meses[mes]}/{ano}"
 
 class FipeAPI:
     # Inicializando o cliente SQS e o logger como atributos de classe
     sqs_client = boto3.client("sqs")
     logger = logging.getLogger(__name__)  # Definindo o nome do logger
 
-    def __init__(self):
+    def __init__(self, period=None):
+        if period== None:
+            period = (0,0,)
         self.logger.setLevel(logging.INFO)  # Definindo o nível de log
         self.url_base = os.getenv("URL_FIPE")
         self.logger.info(f"Fipe URL -> {self.url_base}")
         if not bool(self.url_base):
             raise ValueError("Variável de ambiente URL_FIPE nao definida")
-        self.reference_table = self.get_reference_table()
+        self.reference_table = self.get_reference_table(period)
         self.reference_table_code = self.reference_table.get("Codigo")
         self.reference_month_name = self.reference_table.get(
             "Mes", "Desconhecido"
         ).strip()
 
-    def get_reference_table(self):
+    def get_reference_table(self, period):
         try:
+            mes = period[0]
+            ano = period[1]
             url = f"{self.url_base}/ConsultarTabelaDeReferencia"
             response = requests.post(url)
             response.raise_for_status()
             reference_tables = response.json()
             if reference_tables:
-                return reference_tables[0]
+                if mes == 0 and ano == 0:
+                    return reference_tables[0]
+                else:
+                    database = mes_ano_formatado(mes, ano)
+                    for table in reference_tables:
+                        if str(table["Mes"]).strip().lower() == database.lower():
+                            return table
             else:
                 self.logger.warning("No reference tables found.")
                 return {}
+            print(f"Mes/Ano: {mes}/{ano}")
         except Exception as e:
             self.logger.error(f"Error fetching reference table: {e}")
             raise
