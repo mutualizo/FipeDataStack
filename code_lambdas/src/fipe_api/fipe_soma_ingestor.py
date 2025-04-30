@@ -3,6 +3,7 @@ import os
 import logging
 import time
 import psycopg2
+from datetime import datetime
 from psycopg2 import sql
 from get_db_password import get_db_password
 
@@ -86,9 +87,9 @@ def get_or_create_reference_id(conn, code, name):
                 cur.execute("""
                     INSERT INTO public.fipe_reference_month 
                     (code, name, create_date, create_uid, write_date) 
-                    VALUES (%s, %s, NOW(), 1, NOW()) 
+                    VALUES (%s, %s, %s, %s, %s) 
                     RETURNING id
-                    """, (code, name)
+                    """, (code, name, datetime.now(), 1, datetime.now())
                 )
 
                 id_no = cur.fetchone()[0]
@@ -97,7 +98,6 @@ def get_or_create_reference_id(conn, code, name):
         except Exception as e:
             logger.error(f"Erro ao verificar ou criar referência: {str(e)}")
             return None
-    
 
 def get_or_create_manufacturer(conn, manufacturer, manufacturer_code, vehicle_type):
     """
