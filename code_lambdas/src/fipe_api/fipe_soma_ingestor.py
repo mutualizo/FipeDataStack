@@ -290,8 +290,8 @@ def process_message(conn, record):
                     logger.info(f"Referência de tabela processada: {reference}")
                     id_reference = get_or_create_reference_id(
                         conn, 
-                        reference.get("Codigo").strip(), 
-                        reference.get("Mes").strip()
+                        str(reference.get("Codigo")).strip(), 
+                        str(reference.get("Mes")).strip()
                     )                    
         else:
             logger.info(f"Conteúdo da mensagem: {json.dumps(message_body, ensure_ascii=False)[:500]}...")
