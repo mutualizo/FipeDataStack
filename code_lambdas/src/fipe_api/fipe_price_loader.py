@@ -48,91 +48,96 @@ def lambda_handler(event, context):
         try:
             message = json.loads(record["body"])
             logger.info(f"Message received: {message} (Message ID: {message_id})")
+            
+            if message.get("tabela_referencia"):
+                batch.append(message)
+            else:
+            
 
-            # Ajuste das chaves
-            reference_table_code = message["codigoTabelaReferencia"]
-            vehicle_type = message["vehicle_type"]
-            manufacturer_code = message["manufacturer_code"]
-            model_code = message["model_code"]
-            year_model = message.get("anoModelo", "Unknown")
-            manufacturer_name = message.get("manufacturer", "Unknown")
-            model_name = message.get("model", "Unknown")
-            reference_month_name = message.get("mesReferenciaAno", "Desconhecido")
-
-            retries = 2
-            delay = 5
-            success = False
-            while retries > 0 and not success:
-                try:
-                    # Obtém os anos e tipos de combustível disponíveis
-                    years, available_fuel_types = fipe_api.get_years(
-                        manufacturer_code, model_code, vehicle_type
-                    )
-
-                    for year in years:
-                        year_model = year.get("yearModel", "Unknown")
-                        year_name = year.get("Label", "Unknown")
-                        logger.info(f"Processing year: {year_model}, Label: {year_name}")
-
-                        for fuel_type in available_fuel_types:
-                            fuel_type_code = fuel_type.split("-")[-1] if "-" in fuel_type else fuel_type
-
-                            logger.info(
-                                f"Attempting to get price for fuel type: {fuel_type_code} (Year: {year_model}, Model: {model_name})"
-                            )
-
-                            price = fipe_api.get_price(
-                                manufacturer_code,
-                                model_code,
-                                year_model,
-                                vehicle_type,
-                                fuel_type_code,
-                            )
-
-                            if price:
-                                complete_data = {
-                                    "manufacturer": manufacturer_name,
-                                    "manufacturer_code": manufacturer_code,
-                                    "model": model_name,
-                                    "model_code": model_code,
-                                    "model_year": year_name,
-                                    "model_year_code": year_model,
-                                    "fipe_value": price.get("Valor", ""),
-                                    "fipe_code": price.get("CodigoFipe", ""),
-                                    "fuel_type": fuel_type_code,
-                                    "vehicle_type": vehicle_type,
-                                    "mesReferenciaAno": reference_month_name,
-                                    "codigoTabelaReferencia": reference_table_code,
-                                }
-                                logger.info(
-                                    f"Data to be sent: {json.dumps(complete_data, indent=4, ensure_ascii=False)}"
-                                )
-                                batch.append(complete_data)
-                    success = True
-                    break
-
-                except requests.HTTPError as e:
-                    if hasattr(e, 'response') and e.response.status_code == 429:
-                        logger.warning(
-                            f"[429] - Rate limit exceeded. Waiting for {delay} seconds..."
+                # Ajuste das chaves
+                reference_table_code = message["codigoTabelaReferencia"]
+                vehicle_type = message["vehicle_type"]
+                manufacturer_code = message["manufacturer_code"]
+                model_code = message["model_code"]
+                year_model = message.get("anoModelo", "Unknown")
+                manufacturer_name = message.get("manufacturer", "Unknown")
+                model_name = message.get("model", "Unknown")
+                reference_month_name = message.get("mesReferenciaAno", "Desconhecido")
+    
+                retries = 2
+                delay = 5
+                success = False
+                while retries > 0 and not success:
+                    try:
+                        # Obtém os anos e tipos de combustível disponíveis
+                        years, available_fuel_types = fipe_api.get_years(
+                            manufacturer_code, model_code, vehicle_type
                         )
-                        time.sleep(delay)
-                        retries -= 1
-                        delay *= 2  # Exponential backoff
-                    else:
-                        logger.error(f"HTTP Error: {e}")
+    
+                        for year in years:
+                            year_model = year.get("yearModel", "Unknown")
+                            year_name = year.get("Label", "Unknown")
+                            logger.info(f"Processing year: {year_model}, Label: {year_name}")
+    
+                            for fuel_type in available_fuel_types:
+                                fuel_type_code = fuel_type.split("-")[-1] if "-" in fuel_type else fuel_type
+    
+                                logger.info(
+                                    f"Attempting to get price for fuel type: {fuel_type_code} (Year: {year_model}, Model: {model_name})"
+                                )
+    
+                                price = fipe_api.get_price(
+                                    manufacturer_code,
+                                    model_code,
+                                    year_model,
+                                    vehicle_type,
+                                    fuel_type_code,
+                                )
+    
+                                if price:
+                                    complete_data = {
+                                        "manufacturer": manufacturer_name,
+                                        "manufacturer_code": manufacturer_code,
+                                        "model": model_name,
+                                        "model_code": model_code,
+                                        "model_year": year_name,
+                                        "model_year_code": year_model,
+                                        "fipe_value": price.get("Valor", ""),
+                                        "fipe_code": price.get("CodigoFipe", ""),
+                                        "fuel_type": fuel_type_code,
+                                        "vehicle_type": vehicle_type,
+                                        "mesReferenciaAno": reference_month_name,
+                                        "codigoTabelaReferencia": reference_table_code,
+                                    }
+                                    logger.info(
+                                        f"Data to be sent: {json.dumps(complete_data, indent=4, ensure_ascii=False)}"
+                                    )
+                                    batch.append(complete_data)
+                        success = True
+                        break
+    
+                    except requests.HTTPError as e:
+                        if hasattr(e, 'response') and e.response.status_code == 429:
+                            logger.warning(
+                                f"[429] - Rate limit exceeded. Waiting for {delay} seconds..."
+                            )
+                            time.sleep(delay)
+                            retries -= 1
+                            delay *= 2  # Exponential backoff
+                        else:
+                            logger.error(f"HTTP Error: {e}")
+                            batch_item_failures.append({"itemIdentifier": message_id})
+                            break
+    
+                    except Exception as e:
+                        logger.error(f"Error processing message: {e}")
                         batch_item_failures.append({"itemIdentifier": message_id})
                         break
-
-                except Exception as e:
-                    logger.error(f"Error processing message: {e}")
+                
+                # Se esgotou as tentativas e ainda não teve sucesso
+                if retries == 0 and not success:
+                    logger.error(f"Esgotadas as tentativas para a mensagem {message_id}")
                     batch_item_failures.append({"itemIdentifier": message_id})
-                    break
-            
-            # Se esgotou as tentativas e ainda não teve sucesso
-            if retries == 0 and not success:
-                logger.error(f"Esgotadas as tentativas para a mensagem {message_id}")
-                batch_item_failures.append({"itemIdentifier": message_id})
                 
         except json.JSONDecodeError as e:
             logger.error(f"Erro ao decodificar mensagem JSON: {str(e)}")

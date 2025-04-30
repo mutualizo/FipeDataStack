@@ -33,6 +33,10 @@ class FipeAPI:
     # Inicializando o cliente SQS e o logger como atributos de classe
     sqs_client = boto3.client("sqs")
     logger = logging.getLogger(__name__)  # Definindo o nome do logger
+    reference_period = (0,0,)
+    reference_table = None
+    reference_table_code = None
+    reference_month_name = None
 
     def __init__(self, period=None):
         if period== None:
@@ -42,34 +46,38 @@ class FipeAPI:
         self.logger.info(f"Fipe URL -> {self.url_base}")
         if not bool(self.url_base):
             raise ValueError("Variável de ambiente URL_FIPE nao definida")
-        self.reference_table = self.get_reference_table(period)
-        self.reference_table_code = self.reference_table.get("Codigo")
-        self.reference_month_name = self.reference_table.get(
-            "Mes", "Desconhecido"
-        ).strip()
+        self.reference_period = period
+        self.get_reference_table()
 
-    def get_reference_table(self, period):
+    def get_reference_table(self):
+        self.logger.info("REFTABLE - Starting to fetch reference table.")
         try:
-            mes = period[0]
-            ano = period[1]
+            mes = self.reference_period[0]
+            ano = self.reference_period[1]
             url = f"{self.url_base}/ConsultarTabelaDeReferencia"
             response = requests.post(url)
             response.raise_for_status()
-            reference_tables = response.json()
-            if reference_tables:
+            self.reference_table = response.json()
+            if self.reference_table:
                 if mes == 0 and ano == 0:
-                    return reference_tables[0]
+                    self.reference_table_code = self.reference_table[0].get("Codigo")
+                    self.reference_month_name = self.reference_table[0].get(
+                        "Mes", "Desconhecido"
+                    ).strip()
                 else:
                     database = mes_ano_formatado(mes, ano)
-                    for table in reference_tables:
+                    for table in self.reference_table:
                         if str(table["Mes"]).strip().lower() == database.lower():
-                            return table
+                            self.reference_table_code = table.get("Codigo")
+                            self.reference_month_name = table.get(
+                                "Mes", "Desconhecido"
+                            ).strip()
+                return True
             else:
-                self.logger.warning("No reference tables found.")
-                return {}
-            print(f"Mes/Ano: {mes}/{ano}")
+                self.logger.warning("REFTABLE - No reference tables found.")
+                return False
         except Exception as e:
-            self.logger.error(f"Error fetching reference table: {e}")
+            self.logger.error(f"REFTABLE - Error fetching reference table: {e}")
             raise
 
     def get_brands(self, vehicle_type):

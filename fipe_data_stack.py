@@ -92,7 +92,7 @@ class FipeDataStack(Stack):
                 version=rds.AuroraPostgresEngineVersion.VER_15_3
             ),
             credentials=rds.Credentials.from_secret(db_credentials),
-            instances=1,
+            instances=2,
             instance_props=rds.InstanceProps(
                 vpc=vpc,
                 vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
@@ -205,11 +205,17 @@ class FipeDataStack(Stack):
             service_token=provider.service_token
         )
         
-        # Outputs
+        # Outputs para endpoints de escrita e de leitura
         CfnOutput(
             self, f"DBEndpoint-{stage}",
             value=db_cluster.cluster_endpoint.hostname,
-            description=f"O endpoint do cluster PostgreSQL Aurora - {stage}"
+            description=f"Writer endpoint do cluster Aurora - {stage}"
+        )
+        
+        CfnOutput(
+            self, f"DBReaderEndpoint-{stage}",
+            value=db_cluster.cluster_read_endpoint.hostname,
+            description=f"Reader endpoint do cluster Aurora - {stage}"
         )
         
         CfnOutput(

@@ -53,92 +53,96 @@ def lambda_handler(event, context):
                 message = json.loads(record["body"])
                 logger.info(f"Conteúdo da mensagem: {json.dumps(message, ensure_ascii=False)}")
                 
-                brand_code = message.get("codigoMarca")
-                vehicle_type = message.get("codigoTipoVeiculo")
-                reference_table_code = message.get("codigoTabelaReferencia")
-                reference_month_name = message.get("mesReferenciaAno", "Desconhecido")
-                manufacturer_name = message.get("nomeMarca", "Unknown")
-                
-                # Validar dados obrigatórios
-                if not all([brand_code, vehicle_type, reference_table_code]):
-                    logger.error("Dados obrigatórios ausentes na mensagem")
-                    batch_item_failures.append({"itemIdentifier": message_id})
-                    continue
-                
-                # Log do tipo de veículo
-                vehicle_type_map = {1: "Carro", 2: "Moto", 3: "Caminhão"}
-                vehicle_type_name = vehicle_type_map.get(vehicle_type, "Desconhecido")
-                logger.info(f"Consultando modelos para: {manufacturer_name} ({vehicle_type_name})")
-                
-                # Tentar obter os modelos com retry em caso de erro 429 (rate limit)
-                retries = 2
-                delay = 5  # Delay inicial em segundos
-                
-                while retries > 0:
-                    try:
-                        models = fipe_api.get_models(brand_code, vehicle_type)
-                        
-                        if not isinstance(models, dict):
-                            logger.error(f"Resposta inesperada da API: {models}")
-                            batch_item_failures.append({"itemIdentifier": message_id})
-                            break
-                        
-                        model_list = models.get("Modelos", [])
-                        if not isinstance(model_list, list):
-                            logger.error(f"Campo 'Modelos' não é uma lista: {models}")
-                            batch_item_failures.append({"itemIdentifier": message_id})
-                            break
-                        
-                        logger.info(f"Encontrados {len(model_list)} modelos para {manufacturer_name}")
-                        
-                        for model in model_list:
-                            model_code = model.get("Value", "Unknown")
-                            model_name = model.get("Label", "Unknown")
-                            
-                            message_to_send = {
-                                "manufacturer": manufacturer_name,
-                                "manufacturer_code": brand_code,
-                                "model": model_name,
-                                "model_code": model_code,
-                                "vehicle_type": vehicle_type,
-                                "mesReferenciaAno": reference_month_name,
-                                "codigoTabelaReferencia": reference_table_code,
-                            }
-                            
-                            batch.append(message_to_send)
-                            
-                            # Enviar em lotes para evitar exceder limites
-                            if len(batch) >= 10:
-                                failures = fipe_api.send_sqs_messages(output_queue_url, batch)
-                                batch_item_failures.extend(failures)
-                                batch = []  # Limpar o lote após envio
-                                
-                                # Pequeno delay entre lotes para evitar throttling
-                                time.sleep(0.5)
-                        
-                        # Mensagem processada com sucesso
-                        break
-                        
-                    except requests.HTTPError as e:
-                        if hasattr(e, 'response') and e.response.status_code == 429:
-                            logger.warning(f"[429] - Rate limit excedido. Aguardando {delay} segundos...")
-                            time.sleep(delay)
-                            retries -= 1
-                            delay *= 2  # Aumento exponencial do delay
-                        else:
-                            logger.error(f"Erro HTTP ao consultar modelos: {str(e)}")
-                            batch_item_failures.append({"itemIdentifier": message_id})
-                            break
-                            
-                    except Exception as e:
-                        logger.error(f"Erro ao processar mensagem: {str(e)}")
+                if message.get("tabela_referencia"):
+                    batch.append(message)
+                else:
+                    brand_code = message.get("codigoMarca")
+                    vehicle_type = message.get("codigoTipoVeiculo")
+                    reference_table_code = message.get("codigoTabelaReferencia")
+                    reference_month_name = message.get("mesReferenciaAno", "Desconhecido")
+                    manufacturer_name = message.get("nomeMarca", "Unknown")
+                    
+                    # Validar dados obrigatórios
+                    if not all([brand_code, vehicle_type, reference_table_code]):
+                        logger.error("Dados obrigatórios ausentes na mensagem")
                         batch_item_failures.append({"itemIdentifier": message_id})
-                        break
-                
-                # Se esgotou as tentativas e ainda está no loop, adicionar à lista de falhas
-                if retries == 0:
-                    logger.error(f"Esgotadas as tentativas para a mensagem {message_id}")
-                    batch_item_failures.append({"itemIdentifier": message_id})
+                        continue
+                    
+                    # Log do tipo de veículo
+                    vehicle_type_map = {1: "Carro", 2: "Moto", 3: "Caminhão"}
+                    vehicle_type_name = vehicle_type_map.get(vehicle_type, "Desconhecido")
+                    logger.info(f"Consultando modelos para: {manufacturer_name} ({vehicle_type_name})")
+                    
+                    # Tentar obter os modelos com retry em caso de erro 429 (rate limit)
+                    retries = 2
+                    delay = 5  # Delay inicial em segundos
+                    
+                    while retries > 0:
+                        try:
+                            models = fipe_api.get_models(brand_code, vehicle_type)
+                            
+                            if not isinstance(models, dict):
+                                logger.error(f"Resposta inesperada da API: {models}")
+                                batch_item_failures.append({"itemIdentifier": message_id})
+                                break
+                            
+                            model_list = models.get("Modelos", [])
+                            if not isinstance(model_list, list):
+                                logger.error(f"Campo 'Modelos' não é uma lista: {models}")
+                                batch_item_failures.append({"itemIdentifier": message_id})
+                                break
+                            
+                            logger.info(f"Encontrados {len(model_list)} modelos para {manufacturer_name}")
+                            
+                            for model in model_list:
+                                model_code = model.get("Value", "Unknown")
+                                model_name = model.get("Label", "Unknown")
+                                
+                                message_to_send = {
+                                    "manufacturer": manufacturer_name,
+                                    "manufacturer_code": brand_code,
+                                    "model": model_name,
+                                    "model_code": model_code,
+                                    "vehicle_type": vehicle_type,
+                                    "mesReferenciaAno": reference_month_name,
+                                    "codigoTabelaReferencia": reference_table_code,
+                                }
+                                
+                                batch.append(message_to_send)
+                                
+                                # Enviar em lotes para evitar exceder limites
+                                if len(batch) >= 10:
+                                    failures = fipe_api.send_sqs_messages(output_queue_url, batch)
+                                    batch_item_failures.extend(failures)
+                                    batch = []  # Limpar o lote após envio
+                                    
+                                    # Pequeno delay entre lotes para evitar throttling
+                                    time.sleep(0.5)
+                            
+                            # Mensagem processada com sucesso
+                            break
+                            
+                        except requests.HTTPError as e:
+                            if hasattr(e, 'response') and e.response.status_code == 429:
+                                logger.warning(f"[429] - Rate limit excedido. Aguardando {delay} segundos...")
+                                time.sleep(delay)
+                                retries -= 1
+                                delay *= 2  # Aumento exponencial do delay
+                            else:
+                                logger.error(f"Erro HTTP ao consultar modelos: {str(e)}")
+                                batch_item_failures.append({"itemIdentifier": message_id})
+                                break
+                                
+                        except Exception as e:
+                            logger.error(f"Erro ao processar mensagem: {str(e)}")
+                            batch_item_failures.append({"itemIdentifier": message_id})
+                            break
+                    
+                    # Se esgotou as tentativas e ainda está no loop, adicionar à lista de falhas
+                    if retries == 0:
+                        logger.error(f"Esgotadas as tentativas para a mensagem {message_id}")
+                        batch_item_failures.append({"itemIdentifier": message_id})
+                        
             
             except json.JSONDecodeError as e:
                 logger.error(f"Erro ao decodificar mensagem JSON: {str(e)}")

@@ -5,6 +5,18 @@ import argparse
 from fipe_api_service import FipeAPI
 from pip._vendor.pygments.unistring import Pe
 
+def process_table_reference(fipe_api, queue_url):
+    """
+    Função para processar a tabela de referência de veículos
+    """
+    
+    message = {
+        "tabela_referencia": fipe_api.reference_table
+    }
+    
+    fipe_api.send_message_sqs(queue_url, message)
+        
+        
 def process_vehicle_types(is_local=False, local_output_file=None, period=None):
     """
     Função principal que processa os tipos de veículos
@@ -31,7 +43,9 @@ def process_vehicle_types(is_local=False, local_output_file=None, period=None):
     
     print(f"Usando fila de saída: {queue_url}")
     
-    vehicle_types = [3, 1, 2]  # 1: Car, 2: Motorcycle, 3: Truck
+    process_table_reference(fipe_api, queue_url)
+    
+    vehicle_types = [] #[3, 1, 2]  # 1: Car, 2: Motorcycle, 3: Truck
     delay = 1.0  # Delay aumentado para 1 segundo
 
     # Para armazenar mensagens localmente em vez de enviar para SQS

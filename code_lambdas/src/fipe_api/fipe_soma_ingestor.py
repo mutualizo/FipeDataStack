@@ -55,6 +55,50 @@ def get_db_connection():
         attempts += 1
     return conn
 
+def get_or_create_reference_id(conn, code, name):
+    """
+	Verifica se a referência existe, cria se não existir, e retorna o ID da referência.
+	Args:
+	    conn: Conexão com o banco de dados
+	    code: Código da referência	
+	    name: Nome da referência    
+    Returns:
+        int: ID da referência
+    """
+    with conn.cursor() as cur:
+        try:
+            # Verificar se a referência existe
+            logger.info(f"Verificando referência: {code}, name: {name}")
+            cur.execute("""
+				SELECT id FROM public.fipe_reference_month 
+				WHERE code = %s
+			""", (code,))
+
+            id_no = cur.fetchone()
+
+            if bool(id_no):
+                # Referência existe, retornar o ID
+                logger.info(f"Referência encontrada com ID: {id_no[0]}")
+                id_no = id_no[0]
+            else:
+                # Referência não encontrada, criar nova referência
+                logger.info(f"Referência não encontrada, criando nova referência: {code}")
+                cur.execute("""
+                    INSERT INTO public.fipe_reference_month 
+                    (code, name, create_date, create_uid, write_date) 
+                    VALUES (%s, %s, NOW(), 1, NOW()) 
+                    RETURNING id
+                    """, (code, name)
+                )
+
+                id_no = cur.fetchone()[0]
+                conn.commit()
+            return id_no
+        except Exception as e:
+            logger.error(f"Erro ao verificar ou criar referência: {str(e)}")
+            return None
+    
+
 def get_or_create_manufacturer(conn, manufacturer, manufacturer_code, vehicle_type):
     """
     Verifica se o fabricante existe, cria se não existir, e retorna o ID do fabricante.
@@ -238,71 +282,83 @@ def process_message(conn, record):
         logger.info(f"Processando mensagem: {message_id}")
         
         message_body = json.loads(record["body"])
-        logger.info(f"Conteúdo da mensagem: {json.dumps(message_body, ensure_ascii=False)[:500]}...")
-
-        # Preparar dados para processamento
-        data = {
-            "manufacturer": message_body.get("manufacturer", False),
-            "manufacturer_code": message_body.get("manufacturer_code", False),
-            "model": message_body.get("model", False),
-            "model_code": message_body.get("model_code", False),
-            "model_year_code": message_body.get("model_year_code", False),
-            "reference_month": message_body.get("mesReferenciaAno", False),
-            "reference_month_code": message_body.get("codigoTabelaReferencia", False),
-            "fipe_value": message_body.get("fipe_value", False),
-            "fipe_code": message_body.get("fipe_code", False),
-            "fuel_type": message_body.get("fuel_type", False),
-            "vehicle_type": message_body.get("vehicle_type", False),
-        }
-        
-        # Validar dados obrigatórios]
-        not_included = [] 
-        if data.get('manufacturer', False) == False:
-            not_included.append('manufacturer')
-
-        if data.get('manufacturer_code', False) == False:
-            not_included.append('manufacturer_code')
-
-        if data.get('model', False) == False:
-            not_included.append('model')
-
-        if data.get('model_code', False) == False:
-            not_included.append('model_code')
-
-        if data.get('fipe_code', False) == False:
-            not_included.append('fipe_code')
-
-        if data.get('vehicle_type', False) == False:
-            not_included.append('vehicle_type')
-
-        if not_included:
-            logger.error(f"Dados obrigatórios ausentes na mensagem {message_id}: {not_included}")
-            return False
-
-        if not bool(conn):
-            logger.error(f"Não foi possível processar a mensagem {message_id}: Conexão com o banco de dados inválida.")
-            return False
-
-        # Obter ou criar fabricante - usando uma conexão nova para cada operação
-        data['manufacturer_id'] = get_or_create_manufacturer(
-            conn, 
-            data['manufacturer'], 
-            data['manufacturer_code'], 
-            data['vehicle_type']
-        )
-
-        # Obter ou criar modelo - usando uma conexão nova para cada operação
-        data['model_id'] = get_or_create_model(
-            conn, 
-            data['model'], 
-            data['model_code'], 
-            data['manufacturer_id']
-        )
-
-        # Inserir valor do modelo - usando uma conexão nova para cada operação
-        insert_model_value(conn, data)
-        
-        logger.info(f"Mensagem {message_id} processada com sucesso")
+            
+        if message_body.get("tabela_referencia"):
+            reference_table = message_body.get("tabela_referencia")
+            for reference in reference_table:
+                if reference.get("Codigo") and reference.get("Mes"):
+                    logger.info(f"Referência de tabela processada: {reference}")
+                    id_reference = get_or_create_reference_id(
+                        conn, 
+                        reference.get("Codigo").strip(), 
+                        reference.get("Mes").strip()
+                    )                    
+        else:
+            logger.info(f"Conteúdo da mensagem: {json.dumps(message_body, ensure_ascii=False)[:500]}...")
+    
+            # Preparar dados para processamento
+            data = {
+                "manufacturer": message_body.get("manufacturer", False),
+                "manufacturer_code": message_body.get("manufacturer_code", False),
+                "model": message_body.get("model", False),
+                "model_code": message_body.get("model_code", False),
+                "model_year_code": message_body.get("model_year_code", False),
+                "reference_month": message_body.get("mesReferenciaAno", False),
+                "reference_month_code": message_body.get("codigoTabelaReferencia", False),
+                "fipe_value": message_body.get("fipe_value", False),
+                "fipe_code": message_body.get("fipe_code", False),
+                "fuel_type": message_body.get("fuel_type", False),
+                "vehicle_type": message_body.get("vehicle_type", False),
+            }
+            
+            # Validar dados obrigatórios]
+            not_included = [] 
+            if data.get('manufacturer', False) == False:
+                not_included.append('manufacturer')
+    
+            if data.get('manufacturer_code', False) == False:
+                not_included.append('manufacturer_code')
+    
+            if data.get('model', False) == False:
+                not_included.append('model')
+    
+            if data.get('model_code', False) == False:
+                not_included.append('model_code')
+    
+            if data.get('fipe_code', False) == False:
+                not_included.append('fipe_code')
+    
+            if data.get('vehicle_type', False) == False:
+                not_included.append('vehicle_type')
+    
+            if not_included:
+                logger.error(f"Dados obrigatórios ausentes na mensagem {message_id}: {not_included}")
+                return False
+    
+            if not bool(conn):
+                logger.error(f"Não foi possível processar a mensagem {message_id}: Conexão com o banco de dados inválida.")
+                return False
+    
+            # Obter ou criar fabricante - usando uma conexão nova para cada operação
+            data['manufacturer_id'] = get_or_create_manufacturer(
+                conn, 
+                data['manufacturer'], 
+                data['manufacturer_code'], 
+                data['vehicle_type']
+            )
+    
+            # Obter ou criar modelo - usando uma conexão nova para cada operação
+            data['model_id'] = get_or_create_model(
+                conn, 
+                data['model'], 
+                data['model_code'], 
+                data['manufacturer_id']
+            )
+    
+            # Inserir valor do modelo - usando uma conexão nova para cada operação
+            insert_model_value(conn, data)
+            
+            logger.info(f"Mensagem {message_id} processada com sucesso")
         return True
         
     except (KeyError, json.JSONDecodeError) as e:
