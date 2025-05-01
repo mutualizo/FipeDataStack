@@ -4,7 +4,7 @@ on:
   workflow_dispatch:  # Executa somente quando acionada manualmente via GitHub Actions
 #  push:
 #    branches:
-#      - development
+#      - production
 
 jobs:
   deploy:
