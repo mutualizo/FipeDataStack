@@ -310,8 +310,8 @@ def process_message(conn, record):
 
             reference_id = get_or_create_reference_id(
                 conn, 
-                str(message_body.get("mesReferenciaAno", "")).strip(), 
-                str(message_body.get("codigoTabelaReferencia", False)).strip()
+                str(message_body.get("codigoTabelaReferencia", False)).strip(), 
+                str(message_body.get("mesReferenciaAno", "")).strip()
             )                    
     
             # Preparar dados para processamento
