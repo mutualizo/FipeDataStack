@@ -31,7 +31,7 @@ def get_db_connection():
     # Obter a senha do Secrets Manager
     password = get_db_password()
     
-    logger.info(f"Tentando conexão com o banco de dados: {host}:{port}/{database} como {user}")
+    logger.info(f"INGESTOR-DBCONECT - Tentando conexão com o banco de dados: {host}:{port}/{database} como {user}")
     
     # Conectar ao banco de dados
     is_connected = False
@@ -47,11 +47,11 @@ def get_db_connection():
 				password=password
 			)
             is_connected = True
-            logger.info("Conexão com o banco de dados estabelecida com sucesso")
+            logger.info("INGESTOR-DBCONECT - Conexão com o banco de dados estabelecida com sucesso")
             # Desativar autocommit para controlar transações manualmente
             conn.autocommit = False
         except Exception as e:
-            logger.error(f"Erro de conexão com o banco de dados na tentativa {attempts}: {str(e)}")
+            logger.error(f"INGESTOR-DBCONECT - Erro de conexão com o banco de dados na tentativa {attempts}: {str(e)}")
             time.sleep(1)
         attempts += 1
     return conn
@@ -69,7 +69,7 @@ def get_or_create_reference_id(conn, code, name):
     with conn.cursor() as cur:
         try:
             # Verificar se a referência existe
-            logger.info(f"Verificando referência: {code}, name: {name}")
+            logger.info(f"INGESTOR-REFID - Verificando referência: {code}, name: {name}")
             cur.execute("""
 				SELECT id FROM public.fipe_reference_month 
 				WHERE code = %s
@@ -79,24 +79,25 @@ def get_or_create_reference_id(conn, code, name):
 
             if bool(id_no):
                 # Referência existe, retornar o ID
-                logger.info(f"Referência encontrada com ID: {id_no[0]}")
+                logger.info(f"INGESTOR-REFID - Referência encontrada com ID: {id_no[0]}")
                 id_no = id_no[0]
             else:
                 # Referência não encontrada, criar nova referência
                 logger.info(f"Referência não encontrada, criando nova referência: {code}")
                 cur.execute("""
                     INSERT INTO public.fipe_reference_month 
-                    (code, name, create_date, create_uid, write_date) 
-                    VALUES (%s, %s, %s, %s, %s) 
+                    (code, name, create_date, create_uid, write_date, write_uid) 
+                    VALUES (%s, %s, %s, %s, %s, %s) 
                     RETURNING id
-                    """, (code, name, datetime.now(), 1, datetime.now())
+                    """, (code, name, datetime.now(), 1, datetime.now(), 1)
                 )
 
                 id_no = cur.fetchone()[0]
+                logger.info(f"INGESTOR-REFID - Referência criada com ID: {id_no}")
                 conn.commit()
             return id_no
         except Exception as e:
-            logger.error(f"Erro ao verificar ou criar referência: {str(e)}")
+            logger.error(f"INGESTOR-REFID - Erro ao verificar ou criar referência: {str(e)}")
             return None
 
 def get_or_create_manufacturer(conn, manufacturer, manufacturer_code, vehicle_type):
@@ -115,7 +116,7 @@ def get_or_create_manufacturer(conn, manufacturer, manufacturer_code, vehicle_ty
     with conn.cursor() as cur:
         try:
             # Verificar se o fabricante existe
-            logger.info(f"Verificando fabricante: {manufacturer}, código: {manufacturer_code}, tipo: {vehicle_type}")
+            logger.info(f"INGESTOR-MANUFACT - Verificando fabricante: {manufacturer}, código: {manufacturer_code}, tipo: {vehicle_type}")
             cur.execute("""
                 SELECT id FROM public.fipe_vehicle_manufacturer 
                 WHERE name = %s AND code = %s AND vehicle_type = %s
@@ -125,26 +126,26 @@ def get_or_create_manufacturer(conn, manufacturer, manufacturer_code, vehicle_ty
             
             if result:
                 # Fabricante existe, retornar o ID
-                logger.info(f"Fabricante encontrado com ID: {result[0]}")
+                logger.info(f"INGESTOR-MANUFACT - Fabricante encontrado com ID: {result[0]}")
                 return result[0]
             
             # Fabricante não existe, inserir novo registro
-            logger.info(f"Criando novo fabricante: {manufacturer}")
+            logger.info(f"INGESTOR-MANUFACT - Criando novo fabricante: {manufacturer}")
             cur.execute("""
                 INSERT INTO public.fipe_vehicle_manufacturer 
-                (name, code, vehicle_type, create_date) 
-                VALUES (%s, %s, %s, NOW()) 
+                (name, code, vehicle_type, create_date, create_uid, write_date, write_uid) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s) 
                 RETURNING id
-            """, (manufacturer, manufacturer_code, vehicle_type))
+            """, (manufacturer, manufacturer_code, vehicle_type, datetime.now(), 1, datetime.now(), 1))
             
             manufacturer_id = cur.fetchone()[0]
             conn.commit()
-            logger.info(f"Novo fabricante criado com ID: {manufacturer_id}")
+            logger.info(f"INGESTOR-MANUFACT - Novo fabricante criado com ID: {manufacturer_id}")
             
             return manufacturer_id
         except Exception as e:
             conn.rollback()
-            logger.error(f"Erro ao processar fabricante: {str(e)}")
+            logger.error(f"INGESTOR-MANUFACT - Erro ao processar fabricante: {str(e)}")
             raise
 
 def get_or_create_model(conn, model, model_code, manufacturer_id):
@@ -163,7 +164,7 @@ def get_or_create_model(conn, model, model_code, manufacturer_id):
     with conn.cursor() as cur:
         try:
             # Verificar se o modelo existe
-            logger.info(f"Verificando modelo: {model}, código: {model_code}, fabricante ID: {manufacturer_id}")
+            logger.info(f"INGESTOR-MODEL - Verificando modelo: {model}, código: {model_code}, fabricante ID: {manufacturer_id}")
             cur.execute("""
                 SELECT id FROM public.fipe_vehicle_model 
                 WHERE name = %s AND code = %s AND manufacturer_id = %s
@@ -173,29 +174,29 @@ def get_or_create_model(conn, model, model_code, manufacturer_id):
             
             if result:
                 # Modelo existe, retornar o ID
-                logger.info(f"Modelo encontrado com ID: {result[0]}")
+                logger.info(f"INGESTOR-MODEL - Modelo encontrado com ID: {result[0]}")
                 return result[0]
             
             # Modelo não existe, inserir novo registro
-            logger.info(f"Criando novo modelo: {model}")
+            logger.info(f"INGESTOR-MODEL - Criando novo modelo: {model}")
             cur.execute("""
                 INSERT INTO public.fipe_vehicle_model 
-                (name, code, manufacturer_id, create_date) 
-                VALUES (%s, %s, %s, NOW()) 
+                (name, code, manufacturer_id, create_date, create_uid, write_date, write_uid) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s) 
                 RETURNING id
-            """, (str(model), str(model_code), manufacturer_id))
+            """, (str(model), str(model_code), manufacturer_id, datetime.now(), 1, datetime.now(), 1))
             
             model_id = cur.fetchone()[0]
             conn.commit()
-            logger.info(f"Novo modelo criado com ID: {model_id}")
+            logger.info(f"INGESTOR-MODEL - Novo modelo criado com ID: {model_id}")
             
             return model_id
         except Exception as e:
             conn.rollback()
-            logger.error(f"Erro ao processar modelo: {str(e)}")
+            logger.error(f"INGESTOR-MODEL - Erro ao processar modelo: {str(e)}")
             raise
 
-def insert_model_value(conn, data):
+def insert_edit_model_value(conn, data):
     """
     Insere um valor de modelo no banco de dados.
     
@@ -205,7 +206,7 @@ def insert_model_value(conn, data):
     """
     with conn.cursor() as cur:
         try:
-            logger.info(f"Inserindo valor do modelo: {data['model']} {data['model_year_code']}")
+            logger.info(f"INGESTOR-INSERT - Inserindo valor do modelo: {data['model']} {data['model_year_code']}")
             
             # Processar o valor FIPE para float
             fipe_value_str = str(data['fipe_value']).replace("R$ ", "").replace(".", "").replace(",", ".")
@@ -214,36 +215,42 @@ def insert_model_value(conn, data):
             # Verificar se o valor já existe no banco de dados
             cur.execute("""
                 SELECT id FROM public.fipe_vehicle_model_value
-                WHERE model_id = %s AND fipe_code = %s AND 
-                      manufacture_year = %s AND reference_month_code = %s
+                WHERE model_id = %s AND 
+                      fipe_code = %s AND 
+                      manufacture_year = %s AND 
+                      reference_month_code = %s AND
+                      fuel_type = %s
             """, (
                 int(data['model_id']), 
                 str(data['fipe_code']), 
                 str(data['model_year_code']), 
                 str(data['reference_month_code']),
+                str(data['fuel_type']),
             ))
             
             existing_value = cur.fetchone()
             
             if existing_value:
                 # Valor já existe, atualizar
-                logger.info(f"Atualizando valor existente para: {data['model']} {data['model_year_code']}")
+                logger.info(f"INGESTOR-INSERT - Atualizando valor existente para: {data['model']} {data['model_year_code']}")
                 cur.execute("""
                     UPDATE public.fipe_vehicle_model_value
-                    SET fipe_value = %s, write_date = NOW()
+                    SET fipe_value = %s,
+                        reference_month_id = %s, 
+                        write_date = %s
                     WHERE id = %s
-                """, (fipe_value, existing_value[0]))
+                """, (fipe_value, int(data['reference_id']),datetime.now(), existing_value[0]))
             else:
                 # Valor não existe, inserir novo
-                logger.info(f"Inserindo novo valor para: {data['model']} {data['model_year_code']}")
+                logger.info(f"INGESTOR-INSERT - Inserindo novo valor para: {data['model']} {data['model_year_code']}")
                 cur.execute("""
                     INSERT INTO public.fipe_vehicle_model_value (
                         name, code, model_id, fipe_code, manufacturer_id, 
                         manufacture_year, reference_month, reference_month_code, 
-                        fipe_value, fuel_type, vehicle_type, active, create_date
-                    ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()
-                    )
+                        reference_month_id, fipe_value, fuel_type, vehicle_type, 
+                        active, create_date, create_uid, write_date, write_uid
+                    ) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     f"{data['model']} {data['model_year_code']}",
                     str(data['model_code']),
@@ -253,17 +260,22 @@ def insert_model_value(conn, data):
                     str(data['model_year_code']),
                     str(data['reference_month']),
                     str(data['reference_month_code']),
+					int(data['reference_id']),
                     fipe_value,
                     str(data['fuel_type']),
                     int(data['vehicle_type']),
-                    True
+                    True,
+					datetime.now(),
+                    1,
+					datetime.now(),
+					1
                 ))
             
             conn.commit()
-            logger.info(f"Valor do modelo processado com sucesso: {data['model']} {data['model_year_code']}")
+            logger.info(f"INGESTOR-INSERT - Valor do modelo processado com sucesso: {data['model']} {data['model_year_code']}")
         except Exception as e:
             conn.rollback()
-            logger.error(f"Erro ao inserir/atualizar valor do modelo: {str(e)}")
+            logger.error(f"INGESTOR-INSERT - Erro ao inserir/atualizar valor do modelo: {str(e)}")
             raise
 
 def process_message(conn, record):
@@ -279,7 +291,7 @@ def process_message(conn, record):
     """
     message_id = record["messageId"]
     try:
-        logger.info(f"Processando mensagem: {message_id}")
+        logger.info(f"INGESTOR - Processando mensagem: {message_id}")
         
         message_body = json.loads(record["body"])
             
@@ -287,14 +299,20 @@ def process_message(conn, record):
             reference_table = message_body.get("tabela_referencia")
             for reference in reference_table:
                 if reference.get("Codigo") and reference.get("Mes"):
-                    logger.info(f"Referência de tabela processada: {reference}")
-                    id_reference = get_or_create_reference_id(
+                    logger.info(f"INGESTOR - Referência de tabela processada: {reference}")
+                    reference_id = get_or_create_reference_id(
                         conn, 
                         str(reference.get("Codigo")).strip(), 
                         str(reference.get("Mes")).strip()
                     )                    
         else:
-            logger.info(f"Conteúdo da mensagem: {json.dumps(message_body, ensure_ascii=False)[:500]}...")
+            logger.info(f"INGESTOR - Conteúdo da mensagem: {json.dumps(message_body, ensure_ascii=False)[:500]}...")
+
+            reference_id = get_or_create_reference_id(
+                conn, 
+                str(message_body.get("mesReferenciaAno", "")).strip(), 
+                str(message_body.get("codigoTabelaReferencia", False)).strip()
+            )                    
     
             # Preparar dados para processamento
             data = {
@@ -305,6 +323,7 @@ def process_message(conn, record):
                 "model_year_code": message_body.get("model_year_code", False),
                 "reference_month": message_body.get("mesReferenciaAno", False),
                 "reference_month_code": message_body.get("codigoTabelaReferencia", False),
+                "reference_id": reference_id,
                 "fipe_value": message_body.get("fipe_value", False),
                 "fipe_code": message_body.get("fipe_code", False),
                 "fuel_type": message_body.get("fuel_type", False),
@@ -332,11 +351,11 @@ def process_message(conn, record):
                 not_included.append('vehicle_type')
     
             if not_included:
-                logger.error(f"Dados obrigatórios ausentes na mensagem {message_id}: {not_included}")
+                logger.error(f"INGESTOR - Dados obrigatórios ausentes na mensagem {message_id}: {not_included}")
                 return False
     
             if not bool(conn):
-                logger.error(f"Não foi possível processar a mensagem {message_id}: Conexão com o banco de dados inválida.")
+                logger.error(f"INGESTOR - Não foi possível processar a mensagem {message_id}: Conexão com o banco de dados inválida.")
                 return False
     
             # Obter ou criar fabricante - usando uma conexão nova para cada operação
@@ -356,16 +375,16 @@ def process_message(conn, record):
             )
     
             # Inserir valor do modelo - usando uma conexão nova para cada operação
-            insert_model_value(conn, data)
+            insert_edit_model_value(conn, data)
             
-            logger.info(f"Mensagem {message_id} processada com sucesso")
+            logger.info(f"INGESTOR - Mensagem {message_id} processada com sucesso")
         return True
         
     except (KeyError, json.JSONDecodeError) as e:
-        logger.error(f"Erro de decodificação da mensagem {message_id}: {str(e)}")
+        logger.error(f"INGESTOR - Erro de decodificação da mensagem {message_id}: {str(e)}")
         return False
     except Exception as e:
-        logger.error(f"Erro ao processar mensagem {message_id}: {str(e)}")
+        logger.error(f"INGESTOR - Erro ao processar mensagem {message_id}: {str(e)}")
         return False
 
 def lambda_handler(event, context):
@@ -379,20 +398,20 @@ def lambda_handler(event, context):
     Returns:
         dict: Resultado do processamento, incluindo eventuais falhas
     """
-    logger.info("Iniciando FipeSomaIngestor...")
+    logger.info("INGESTOR - Iniciando FipeSomaIngestor...")
     
     # Verificar variáveis de ambiente importantes
     input_queue_url = os.environ.get("SQS_INPUT_URL")
     if not input_queue_url:
-        logger.error("Variável de ambiente SQS_INPUT_URL não definida")
+        logger.error("INGESTOR - Variável de ambiente SQS_INPUT_URL não definida")
         return {
             "statusCode": 500,
             "body": json.dumps("Erro: SQS_INPUT_URL não definida"),
             "batchItemFailures": [{"itemIdentifier": record["messageId"]} for record in event["Records"]]
         }
     
-    logger.info(f"Usando fila de entrada: {input_queue_url}")
-    logger.info(f"Processando {len(event['Records'])} mensagens da fila SQS...")
+    logger.info(f"INGESTOR - Usando fila de entrada: {input_queue_url}")
+    logger.info(f"INGESTOR - Processando {len(event['Records'])} mensagens da fila SQS...")
     
     batch_item_failures = []
     total_processed = 0
@@ -411,28 +430,28 @@ def lambda_handler(event, context):
                 # Fechar a conexão, garantindo que todas as transações sejam finalizadas
                 conn.close()
             except Exception as e:
-                logger.error(f"Erro ao fechar conexão: {str(e)}")
+                logger.error(f"INGESTOR - Erro ao fechar conexão: {str(e)}")
         else:
-            logger.error("Erro fatal ao estabelecer conexão com o banco de dados")
+            logger.error("INGESTOR - Erro fatal ao estabelecer conexão com o banco de dados")
             
         if success:
             total_processed += 1
         else:
             batch_item_failures.append({"itemIdentifier": record["messageId"]})
-            logger.error(f"Erro ao processar mensagem {record['messageId']}: {str(e)}")
+            logger.error(f"INGESTOR - Erro ao processar mensagem {record['messageId']}: {str(e)}")
             batch_item_failures.append({"itemIdentifier": record["messageId"]})
 
     total_failures = len(batch_item_failures)
     total_records = len(event["Records"])
     success_count = total_records - total_failures
     
-    logger.info(f""">>> Resumo do Processamento Concluído:\n
+    logger.info(f"""INGESTOR - Resumo do Processamento Concluído:\n
     - {total_processed} total de valores FIPE processados;\n
 	- {success_count}/{total_records} mensagens processadas com sucesso;\n
 	- {total_failures}/{total_records} mensagens processadas com falhas;""")
     
     if total_failures > 0:
-        logger.warning(f"{total_failures} mensagens não puderam ser processadas;")
+        logger.warning(f"INGESTOR - {total_failures} mensagens não puderam ser processadas;")
 
     return {
         "statusCode": 200,
