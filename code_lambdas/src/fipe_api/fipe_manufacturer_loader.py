@@ -45,6 +45,8 @@ def process_vehicle_types(is_local=False, local_output_file=None, period=None):
     
     process_table_reference(fipe_api, queue_url)
     
+    time.sleep(5)
+    
     vehicle_types = [3, 1, 2]  # 1: Car, 2: Motorcycle, 3: Truck
     delay = 1.0  # Delay aumentado para 1 segundo
 

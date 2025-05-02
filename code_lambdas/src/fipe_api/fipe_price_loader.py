@@ -51,6 +51,8 @@ def lambda_handler(event, context):
             
             if message.get("tabela_referencia"):
                 batch.append(message)
+                send_batch(batch)
+                batch.clear()
             else:
             
 

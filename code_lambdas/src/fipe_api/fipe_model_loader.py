@@ -55,6 +55,9 @@ def lambda_handler(event, context):
                 
                 if message.get("tabela_referencia"):
                     batch.append(message)
+                    failures = fipe_api.send_sqs_messages(output_queue_url, batch)
+                    batch_item_failures.extend(failures)
+                    batch = []  # Limpar o lote após envio
                 else:
                     brand_code = message.get("codigoMarca")
                     vehicle_type = message.get("codigoTipoVeiculo")
@@ -117,7 +120,7 @@ def lambda_handler(event, context):
                                     batch = []  # Limpar o lote após envio
                                     
                                     # Pequeno delay entre lotes para evitar throttling
-                                    time.sleep(0.5)
+                                    time.sleep(1)
                             
                             # Mensagem processada com sucesso
                             break
