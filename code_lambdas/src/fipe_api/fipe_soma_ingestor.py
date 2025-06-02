@@ -438,7 +438,7 @@ def lambda_handler(event, context):
             total_processed += 1
         else:
             batch_item_failures.append({"itemIdentifier": record["messageId"]})
-            logger.error(f"INGESTOR - Erro ao processar mensagem {record['messageId']}: {str(e)}")
+            logger.error(f"INGESTOR - Erro ao processar mensagem {str(record)}")
             batch_item_failures.append({"itemIdentifier": record["messageId"]})
 
     total_failures = len(batch_item_failures)
