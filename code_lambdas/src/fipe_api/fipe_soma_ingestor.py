@@ -37,7 +37,8 @@ def get_db_connection():
     is_connected = False
     attempts = 1
     conn = None
-    while not is_connected and attempts < 5:
+    sleep_vl = 0.5
+    while not is_connected and attempts < 8:
         try:
             conn = psycopg2.connect(
 				host=host,
@@ -51,8 +52,9 @@ def get_db_connection():
             # Desativar autocommit para controlar transações manualmente
             conn.autocommit = False
         except Exception as e:
-            logger.error(f"INGESTOR-DBCONECT - Erro de conexão com o banco de dados na tentativa {attempts}: {str(e)}")
-            time.sleep(1)
+            if attempts < 8:
+                logger.warning(f"INGESTOR-DBCONECT - Erro de conexão com o banco de dados na tentativa {attempts}: {str(e)}")
+                time.sleep(sleep_vl * attempts)
         attempts += 1
     return conn
 
