@@ -160,3 +160,22 @@ ALTER TABLE IF EXISTS public.fipe_vehicle_model_value
     ON UPDATE NO ACTION
     ON DELETE NO ACTION
     NOT VALID;
+
+/*
+
+ALTER TABLE IF EXISTS public.fipe_reference_month
+    RENAME code TO code_ant;
+
+ALTER TABLE IF EXISTS public.fipe_reference_month
+    ADD COLUMN code integer;
+
+UPDATE fipe_reference_month
+SET code = CAST(code_ant AS INTEGER);
+
+CREATE INDEX idx_fipe_vehicle_model_value_reference ON fipe_vehicle_model_value (reference_month_id, model_id, fipe_code, manufacture_year);
+
+CREATE INDEX idx_fipe_vehicle_model_manufacturer ON fipe_vehicle_model (manufacturer_id, code, name);
+
+CREATE INDEX idx_fipe_vehicle_manufacturer_name ON fipe_vehicle_manufacturer (name);
+
+*/
