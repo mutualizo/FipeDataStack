@@ -29,16 +29,13 @@ class FipeApiStack(NestedStack):
                 **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # Adicionar tag de estágio (stage) ao stack
+        # ... (código inicial sem alterações até a definição da lambda ingestora) ...
         Tags.of(self).add("Stage", stage)
         Tags.of(self).add("Application", "FipeAPI")
         
-        # Log da criação do stack
         print(f"Iniciando criação do FipeApiStack para o estágio: {stage}")
         print(f"Usando endpoint do banco de dados (via proxy): {db_cluster_endpoint}")
         
-        # Criar um grupo de segurança para a função Lambda que acessa o banco de dados
-        # MODIFICADO: Atribuído a 'self' para ser acessível pelo stack pai.
         self.lambda_security_group = ec2.SecurityGroup(
             self, f"FipeApiLambdaSecurityGroup-{stage}",
             vpc=vpc,
@@ -48,7 +45,6 @@ class FipeApiStack(NestedStack):
         Tags.of(self.lambda_security_group).add("Stage", stage)
         print(f"Grupo de segurança para as Lambdas criado: {self.lambda_security_group.security_group_id}")
         
-        # Permissões para as Lambdas chamarem uns aos outros, acessarem SQS e PostgreSQL
         lambda_role = iam.Role(
             self, f"FipeApiLambdaRole-{stage}",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
@@ -58,7 +54,6 @@ class FipeApiStack(NestedStack):
             ]
         )
         
-        # Permissões específicas para a Lambda que acessa o banco de dados
         db_lambda_role = iam.Role(
             self, f"FipeApiDBLambdaRole-{stage}",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
@@ -69,7 +64,6 @@ class FipeApiStack(NestedStack):
             ]
         )
         
-        # Adicionar permissão explícita para acessar o Secrets Manager
         db_lambda_role.add_to_policy(iam.PolicyStatement(
             actions=["secretsmanager:GetSecretValue"],
             resources=[db_secret_arn]
@@ -79,10 +73,8 @@ class FipeApiStack(NestedStack):
         Tags.of(db_lambda_role).add("Stage", stage)
         print(f"Roles para as Lambdas criadas")
 
-        # Extrair o nome do segredo do ARN
         secret_name = db_secret_arn.split(':')[-1]
         
-        # Adicionar permissão para acessar o segredo do banco de dados
         db_secret = secretsmanager.Secret.from_secret_name_v2(
             self, f"ImportedDBSecret-{stage}", 
             secret_name
@@ -90,13 +82,13 @@ class FipeApiStack(NestedStack):
         db_secret.grant_read(db_lambda_role)
         print(f"Permissão para acessar o segredo do banco de dados concedida à role")
         
-        # ... (código para DLQ, SQS, Layer e Envs permanece o mesmo) ...
         manufacturer_dlq = sqs.Queue(self, f"FipeManufacturerDLQ-{stage}", visibility_timeout=Duration.seconds(300), retention_period=Duration.days(14), queue_name=f"fipe-manufacturer-dlq-{stage}")
         Tags.of(manufacturer_dlq).add("Stage", stage)
         model_dlq = sqs.Queue(self, f"FipeModelDLQ-{stage}", visibility_timeout=Duration.seconds(300), retention_period=Duration.days(14), queue_name=f"fipe-model-dlq-{stage}")
         Tags.of(model_dlq).add("Stage", stage)
         price_dlq = sqs.Queue(self, f"FipePriceDLQ-{stage}", visibility_timeout=Duration.seconds(300), retention_period=Duration.days(14), queue_name=f"fipe-price-dlq-{stage}")
         Tags.of(price_dlq).add("Stage", stage)
+        
         manufacturer_queue = sqs.Queue(self, f"FipeManufacturerQueue-{stage}", visibility_timeout=Duration.seconds(300), retention_period=Duration.days(4), queue_name=f"fipe-manufacturer-queue-{stage}", dead_letter_queue=sqs.DeadLetterQueue(max_receive_count=5, queue=manufacturer_dlq))
         Tags.of(manufacturer_queue).add("Stage", stage)
         print(f"Fila SQS para fabricantes criada: {manufacturer_queue.queue_name}")
@@ -107,37 +99,43 @@ class FipeApiStack(NestedStack):
         Tags.of(price_queue).add("Stage", stage)
         print(f"Fila SQS para preços criada: {price_queue.queue_name}")
         print("Filas DLQ configuradas para todas as filas SQS")
+        
         lambda_layer = lambda_.LayerVersion(self, f"FipeApiLayer-{stage}", code=lambda_.Code.from_asset("fipe_api_layer.zip"), compatible_runtimes=[lambda_.Runtime.PYTHON_3_10], description=f"Layer for FIPE API Lambda functions - {stage}")
         Tags.of(lambda_layer).add("Stage", stage)
         print(f"Camada Lambda para FIPE API criada a partir do arquivo ZIP")
+        
         common_env = {"STAGE": stage, "URL_FIPE": "http://veiculos.fipe.org.br/api/veiculos"}
         manufacturer_loader_env = {**common_env, "SQS_OUTPUT_URL": manufacturer_queue.queue_url, "TEST": "false"}
         model_loader_env = {**common_env, "SQS_INPUT_URL": manufacturer_queue.queue_url, "SQS_OUTPUT_URL": model_queue.queue_url}
         price_loader_env = {**common_env, "SQS_INPUT_URL": model_queue.queue_url, "SQS_OUTPUT_URL": price_queue.queue_url}
         ingestor_env = {**common_env, "SQS_INPUT_URL": price_queue.queue_url, "RDS_HOST": db_cluster_endpoint, "RDS_PORT": db_cluster_port, "RDS_DATABASE": "fipedata", "RDS_USER": "postgres", "DB_SECRET_ARN": db_secret_arn}
         
-        # ... (código para Lambdas manufacturer, model, price permanece o mesmo) ...
         manufacturer_lambda = lambda_.Function(self, f"FipeManufacturerLoader-{stage}", function_name=f"FipeManufacturerLoader-{stage}", runtime=lambda_.Runtime.PYTHON_3_10, code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]), handler="fipe_manufacturer_loader.lambda_handler", timeout=Duration.minutes(5), memory_size=256, environment=manufacturer_loader_env, role=lambda_role, layers=[lambda_layer], description="Função para carregar fabricantes da API FIPE")
         Tags.of(manufacturer_lambda).add("Stage", stage)
         Tags.of(manufacturer_lambda).add("Function", "FipeManufacturerLoader")
         print(f"Lambda FipeManufacturerLoader criada: {manufacturer_lambda.function_name}")
+        
         monthly_rule = events.Rule(self, f"FipeManufacturerMonthlyRule-{stage}", schedule=events.Schedule.cron(minute="0", hour="4", day="1", month="*", year="*"), description=f"Executa a lambda FipeManufacturerLoader no dia 1 de cada mês - {stage}")
         monthly_rule.add_target(targets.LambdaFunction(manufacturer_lambda))
         manufacturer_lambda.add_permission(f"AllowEventBridgeInvoke-{stage}", principal=iam.ServicePrincipal("events.amazonaws.com"), source_arn=monthly_rule.rule_arn)
         print(f"Regra CloudWatch Events criada para execução mensal da Lambda FipeManufacturerLoader")
+        
         model_lambda = lambda_.Function(self, f"FipeModelLoader-{stage}", function_name=f"FipeModelLoader-{stage}", runtime=lambda_.Runtime.PYTHON_3_10, code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]), handler="fipe_model_loader.lambda_handler", timeout=Duration.minutes(5), memory_size=256, environment=model_loader_env, role=lambda_role, layers=[lambda_layer], description="Função para carregar modelos da API FIPE")
         Tags.of(model_lambda).add("Stage", stage)
         Tags.of(model_lambda).add("Function", "FipeModelLoader")
         print(f"Lambda FipeModelLoader criada: {model_lambda.function_name}")
+        
         model_lambda.add_event_source(lambda_event_sources.SqsEventSource(manufacturer_queue, batch_size=10, max_batching_window=Duration.seconds(30), report_batch_item_failures=True))
         print(f"Fonte de evento SQS adicionada à Lambda {model_lambda.function_name}")
+        
         price_lambda = lambda_.Function(self, f"FipePriceLoader-{stage}", function_name=f"FipePriceLoader-{stage}", runtime=lambda_.Runtime.PYTHON_3_10, code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]), handler="fipe_price_loader.lambda_handler", timeout=Duration.minutes(5), memory_size=256, environment=price_loader_env, role=lambda_role, layers=[lambda_layer], description="Função para carregar preços da API FIPE")
         Tags.of(price_lambda).add("Stage", stage)
         Tags.of(price_lambda).add("Function", "FipePriceLoader")
         print(f"Lambda FipePriceLoader criada: {price_lambda.function_name}")
+        
         price_lambda.add_event_source(lambda_event_sources.SqsEventSource(model_queue, batch_size=10, max_batching_window=Duration.seconds(30), report_batch_item_failures=True))
         print(f"Fonte de evento SQS adicionada à Lambda {price_lambda.function_name}")
-
+        
         # A função ingestora CONTINUA usando VPC para acessar o banco de dados
         print("Criando função FipeSomaIngestor...")
         ingestor_lambda = lambda_.Function(
@@ -152,14 +150,18 @@ class FipeApiStack(NestedStack):
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
             allow_public_subnet=True,
-            security_groups=[self.lambda_security_group], # MODIFICADO: usa o atributo 'self'
+            security_groups=[self.lambda_security_group],
             role=db_lambda_role,
             layers=[lambda_layer],
-            description="Função para ingerir dados da FIPE no banco de dados"
+            description="Função para ingerir dados da FIPE no banco de dados",
+            # #############################################################
+            # MODIFICAÇÃO APLICADA AQUI
+            # #############################################################
+            reserved_concurrent_executions=30
         )
         Tags.of(ingestor_lambda).add("Stage", stage)
         Tags.of(ingestor_lambda).add("Function", "FipeSomaIngestor")
-        print(f"Lambda FipeSomaIngestor criada: {ingestor_lambda.function_name}")
+        print(f"Lambda FipeSomaIngestor criada com limite de concorrência: {ingestor_lambda.function_name}")
         
         # Configurar a fonte de eventos SQS para a Lambda ingestora com configurações otimizadas
         ingestor_lambda.add_event_source(
@@ -172,7 +174,7 @@ class FipeApiStack(NestedStack):
         )
         print(f"Fonte de evento SQS adicionada à Lambda {ingestor_lambda.function_name}")
         
-        # ... (código para Outputs permanece o mesmo) ...
+        # ... (código de outputs sem alterações) ...
         CfnOutput(self, f"ManufacturerQueueUrl-{stage}", value=manufacturer_queue.queue_url, description=f"URL da fila SQS para fabricantes - {stage}")
         CfnOutput(self, f"ModelQueueUrl-{stage}", value=model_queue.queue_url, description=f"URL da fila SQS para modelos - {stage}")
         CfnOutput(self, f"PriceQueueUrl-{stage}", value=price_queue.queue_url, description=f"URL da fila SQS para preços - {stage}")
