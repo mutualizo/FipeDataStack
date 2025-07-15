@@ -66,7 +66,7 @@ def lambda_handler(event, context):
                 model_name = message.get("model", "Unknown")
                 reference_month_name = message.get("mesReferenciaAno", "Desconhecido")
     
-                retries = 2
+                retries = 5
                 delay = 5
                 success = False
                 while retries > 0 and not success:
@@ -121,7 +121,7 @@ def lambda_handler(event, context):
                     except requests.HTTPError as e:
                         if hasattr(e, 'response') and e.response.status_code == 429:
                             logger.warning(
-                                f"[429] - Rate limit exceeded. Waiting for {delay} seconds..."
+                                f"[429] - i. Waiting for {delay} seconds..."
                             )
                             time.sleep(delay)
                             retries -= 1
@@ -152,7 +152,8 @@ def lambda_handler(event, context):
         if index % 10 == 0:
             send_batch(batch)
             batch.clear()
-            time.sleep(0.5)
+            time.sleep(1)
+        time.sleep(0.5)
 
     if batch:
         send_batch(batch)

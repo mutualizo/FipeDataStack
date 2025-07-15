@@ -29,7 +29,7 @@ class FipeApiStack(NestedStack):
                 **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # ... (código inicial sem alterações até a definição da lambda ingestora) ...
+        # ... (código inicial sem alterações) ...
         Tags.of(self).add("Stage", stage)
         Tags.of(self).add("Application", "FipeAPI")
         
@@ -120,23 +120,60 @@ class FipeApiStack(NestedStack):
         manufacturer_lambda.add_permission(f"AllowEventBridgeInvoke-{stage}", principal=iam.ServicePrincipal("events.amazonaws.com"), source_arn=monthly_rule.rule_arn)
         print(f"Regra CloudWatch Events criada para execução mensal da Lambda FipeManufacturerLoader")
         
-        model_lambda = lambda_.Function(self, f"FipeModelLoader-{stage}", function_name=f"FipeModelLoader-{stage}", runtime=lambda_.Runtime.PYTHON_3_10, code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]), handler="fipe_model_loader.lambda_handler", timeout=Duration.minutes(5), memory_size=256, environment=model_loader_env, role=lambda_role, layers=[lambda_layer], description="Função para carregar modelos da API FIPE")
+        print("Criando função FipeModelLoader...")
+        model_lambda = lambda_.Function(
+            self, f"FipeModelLoader-{stage}",
+            function_name=f"FipeModelLoader-{stage}",
+            runtime=lambda_.Runtime.PYTHON_3_10,
+            code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]),
+            handler="fipe_model_loader.lambda_handler",
+            timeout=Duration.minutes(5),
+            memory_size=256,
+            environment=model_loader_env,
+            role=lambda_role,
+            layers=[lambda_layer],
+            description="Função para carregar modelos da API FIPE",
+            # #############################################################
+            # MODIFICAÇÃO APLICADA AQUI
+            # #############################################################
+            reserved_concurrent_executions=5
+        )
         Tags.of(model_lambda).add("Stage", stage)
         Tags.of(model_lambda).add("Function", "FipeModelLoader")
-        print(f"Lambda FipeModelLoader criada: {model_lambda.function_name}")
+        print(f"Lambda FipeModelLoader criada com limite de concorrência: {model_lambda.function_name}")
         
         model_lambda.add_event_source(lambda_event_sources.SqsEventSource(manufacturer_queue, batch_size=10, max_batching_window=Duration.seconds(30), report_batch_item_failures=True))
         print(f"Fonte de evento SQS adicionada à Lambda {model_lambda.function_name}")
         
-        price_lambda = lambda_.Function(self, f"FipePriceLoader-{stage}", function_name=f"FipePriceLoader-{stage}", runtime=lambda_.Runtime.PYTHON_3_10, code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]), handler="fipe_price_loader.lambda_handler", timeout=Duration.minutes(5), memory_size=256, environment=price_loader_env, role=lambda_role, layers=[lambda_layer], description="Função para carregar preços da API FIPE")
+        print("Criando função FipePriceLoader...")
+        price_lambda = lambda_.Function(
+            self, f"FipePriceLoader-{stage}",
+            function_name=f"FipePriceLoader-{stage}",
+            runtime=lambda_.Runtime.PYTHON_3_10,
+            code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]),
+            handler="fipe_price_loader.lambda_handler",
+            timeout=Duration.minutes(5),
+            memory_size=256,
+            environment=price_loader_env,
+            role=lambda_role,
+            layers=[lambda_layer],
+            description="Função para carregar preços da API FIPE",
+            reserved_concurrent_executions=5
+        )
         Tags.of(price_lambda).add("Stage", stage)
         Tags.of(price_lambda).add("Function", "FipePriceLoader")
-        print(f"Lambda FipePriceLoader criada: {price_lambda.function_name}")
+        print(f"Lambda FipePriceLoader criada com limite de concorrência: {price_lambda.function_name}")
         
-        price_lambda.add_event_source(lambda_event_sources.SqsEventSource(model_queue, batch_size=10, max_batching_window=Duration.seconds(30), report_batch_item_failures=True))
+        price_lambda.add_event_source(
+            lambda_event_sources.SqsEventSource(
+                model_queue, 
+                batch_size=10,
+                max_batching_window=Duration.seconds(30),
+                report_batch_item_failures=True
+            )
+        )
         print(f"Fonte de evento SQS adicionada à Lambda {price_lambda.function_name}")
         
-        # A função ingestora CONTINUA usando VPC para acessar o banco de dados
         print("Criando função FipeSomaIngestor...")
         ingestor_lambda = lambda_.Function(
             self, f"FipeSomaIngestor-{stage}",
@@ -154,16 +191,12 @@ class FipeApiStack(NestedStack):
             role=db_lambda_role,
             layers=[lambda_layer],
             description="Função para ingerir dados da FIPE no banco de dados",
-            # #############################################################
-            # MODIFICAÇÃO APLICADA AQUI
-            # #############################################################
             reserved_concurrent_executions=30
         )
         Tags.of(ingestor_lambda).add("Stage", stage)
         Tags.of(ingestor_lambda).add("Function", "FipeSomaIngestor")
         print(f"Lambda FipeSomaIngestor criada com limite de concorrência: {ingestor_lambda.function_name}")
         
-        # Configurar a fonte de eventos SQS para a Lambda ingestora com configurações otimizadas
         ingestor_lambda.add_event_source(
             lambda_event_sources.SqsEventSource(
                 price_queue, 
@@ -174,7 +207,7 @@ class FipeApiStack(NestedStack):
         )
         print(f"Fonte de evento SQS adicionada à Lambda {ingestor_lambda.function_name}")
         
-        # ... (código de outputs sem alterações) ...
+        # ... (restante do código de outputs sem alterações) ...
         CfnOutput(self, f"ManufacturerQueueUrl-{stage}", value=manufacturer_queue.queue_url, description=f"URL da fila SQS para fabricantes - {stage}")
         CfnOutput(self, f"ModelQueueUrl-{stage}", value=model_queue.queue_url, description=f"URL da fila SQS para modelos - {stage}")
         CfnOutput(self, f"PriceQueueUrl-{stage}", value=price_queue.queue_url, description=f"URL da fila SQS para preços - {stage}")
