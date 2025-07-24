@@ -77,7 +77,7 @@ class FipeDataStack(Stack):
                 version=rds.AuroraPostgresEngineVersion.VER_15_3
             ),
             credentials=rds.Credentials.from_secret(db_credentials),
-            serverless_v2_min_capacity=1,
+            serverless_v2_min_capacity=0.5,
             serverless_v2_max_capacity=1,
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
