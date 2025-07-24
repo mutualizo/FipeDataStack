@@ -74,10 +74,12 @@ class FipeDataStack(Stack):
         db_cluster = rds.ServerlessCluster(
             self,
             f"FipeDataCluster-{stage}",
-            engine=rds.DatabaseClusterEngine.AURORA_POSTGRESQL,
+            engine=rds.DatabaseClusterEngine.aurora_postgres(
+                version=rds.AuroraPostgresEngineVersion.VER_15_3  # 👈 versão explícita!
+            ),
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(
-                subnet_type=ec2.SubnetType.PUBLIC  # se quiser público, use PUBLIC
+                subnet_type=ec2.SubnetType.PUBLIC  # ou PRIVATE se preferir
             ),
             security_groups=[db_security_group],
             default_database_name="fipedata",
