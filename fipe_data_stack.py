@@ -15,10 +15,9 @@ from aws_cdk import (
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
-from aws_cdk import aws_rds as rds, CfnResource
+from aws_cdk import aws_rds as rds
 from aws_cdk import aws_secretsmanager as secretsmanager
 from aws_cdk import custom_resources as cr
-from typing import cast
 
 # Importar o stack filho FipeApiStack
 from fipe_api_stack import FipeApiStack
@@ -81,24 +80,19 @@ class FipeDataStack(Stack):
                 version=rds.AuroraPostgresEngineVersion.VER_15_3
             ),
             credentials=rds.Credentials.from_secret(db_credentials),
-            # Remova a propriedade serverless_v2_scaling_configuration daqui
-            # A configuração de instâncias também deve ser removida
+            # Propriedades de instâncias removidas (instances, instance_props)
+            # Adicionada configuração Serverless v2
+            serverless_v2_scaling_configuration=rds.ServerlessV2ScalingConfiguration(
+                min_capacity=1,  # Mínimo de 1 ACU
+                max_capacity=1   # Máximo de 1 ACU conforme solicitado
+            ),
+            # Propriedades de rede movidas para o nível do cluster
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
             security_groups=[db_security_group],
             default_database_name="fipedata",
             cluster_identifier=f"FipeDataCluster-{stage}",
             removal_policy=RemovalPolicy.DESTROY
-        )
-        
-        # Obter o recurso Cfn (L1) subjacente
-        cfn_cluster = cast(rds.CfnDBCluster, db_cluster.node.default_child)
-
-        # Adicionar a configuração Serverless v2 diretamente no recurso L1
-        # Note que as propriedades em L1 usam camelCase
-        cfn_cluster.serverless_v2_scaling_configuration = rds.CfnDBCluster.ServerlessV2ScalingConfigurationProperty(
-            min_capacity=1,
-            max_capacity=1
         )
         # #############################################################
         # ALTERAÇÃO TERMINA AQUI
