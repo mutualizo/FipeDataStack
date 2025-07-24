@@ -77,20 +77,13 @@ class FipeDataStack(Stack):
                 version=rds.AuroraPostgresEngineVersion.VER_15_3
             ),
             credentials=rds.Credentials.from_secret(db_credentials),
-            instances=2,
-            instance_props=rds.InstanceProps(
+            writer=rds.ClusterInstance.serverless_v2("writer",
                 vpc=vpc,
                 vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
-                instance_type=ec2.InstanceType.of(
-                    ec2.InstanceClass.BURSTABLE3,
-                    ec2.InstanceSize.MEDIUM
-                ),
-                security_groups=[db_security_group],
                 publicly_accessible=True
             ),
-            default_database_name="fipedata",
-            cluster_identifier=f"FipeDataCluster-{stage}",
-            removal_policy=RemovalPolicy.DESTROY
+            serverless_v2_min_capacity=0,
+            serverless_v2_max_capacity=1,
         )
         Tags.of(db_cluster).add("Stage", stage)
         proxy_security_group = ec2.SecurityGroup(
