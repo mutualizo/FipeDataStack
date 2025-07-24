@@ -77,7 +77,7 @@ class FipeDataStack(Stack):
             engine=rds.DatabaseClusterEngine.AURORA_POSTGRESQL,
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(
-                subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS  # ou PUBLIC, se precisar
+                subnet_type=ec2.SubnetType.PUBLIC  # se quiser público, use PUBLIC
             ),
             security_groups=[db_security_group],
             default_database_name="fipedata",
@@ -87,10 +87,8 @@ class FipeDataStack(Stack):
             scaling=rds.ServerlessScalingOptions(
                 min_capacity=rds.AuroraCapacityUnit.ACU_1,
                 max_capacity=rds.AuroraCapacityUnit.ACU_1,
-                auto_pause=None,
             ),
             enable_data_api=True,
-            publicly_accessible=True,
         )
         Tags.of(db_cluster).add("Stage", stage)
         proxy_security_group = ec2.SecurityGroup(
