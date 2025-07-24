@@ -26,7 +26,6 @@ class FipeDataStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, stage: str = "dev", **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
         
-        # ... (código inicial sem alterações) ...
         Tags.of(self).add("Stage", stage)
         Tags.of(self).add("Application", "FipeData")
         vpc_id = self.node.try_get_context("vpc_id")
@@ -71,27 +70,34 @@ class FipeDataStack(Stack):
             )
         )
         Tags.of(db_credentials).add("Stage", stage)
+        
+        # #############################################################
+        # ALTERAÇÃO INICIA AQUI: Migração para Aurora Serverless v2
+        # #############################################################
         db_cluster = rds.DatabaseCluster(
             self, f"FipeDataCluster-{stage}",
             engine=rds.DatabaseClusterEngine.aurora_postgres(
                 version=rds.AuroraPostgresEngineVersion.VER_15_3
             ),
             credentials=rds.Credentials.from_secret(db_credentials),
-            instances=1,
-            instance_props=rds.InstanceProps(
-                vpc=vpc,
-                vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
-                instance_type=ec2.InstanceType.of(
-                    ec2.InstanceClass.BURSTABLE3,
-                    ec2.InstanceSize.MEDIUM
-                ),
-                security_groups=[db_security_group],
-                publicly_accessible=True
+            # Propriedades de instâncias removidas (instances, instance_props)
+            # Adicionada configuração Serverless v2
+            serverless_v2_scaling_configuration=rds.ServerlessV2ScalingConfiguration(
+                min_capacity=1,  # Mínimo de 1 ACU
+                max_capacity=1   # Máximo de 1 ACU conforme solicitado
             ),
+            # Propriedades de rede movidas para o nível do cluster
+            vpc=vpc,
+            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
+            security_groups=[db_security_group],
             default_database_name="fipedata",
             cluster_identifier=f"FipeDataCluster-{stage}",
             removal_policy=RemovalPolicy.DESTROY
         )
+        # #############################################################
+        # ALTERAÇÃO TERMINA AQUI
+        # #############################################################
+        
         Tags.of(db_cluster).add("Stage", stage)
         proxy_security_group = ec2.SecurityGroup(
             self, f"FipeProxySecurityGroup-{stage}",
@@ -117,7 +123,7 @@ class FipeDataStack(Stack):
             description=f"Endpoint do RDS Proxy - {stage}"
         )
         
-        # ... (código da lambda de inicialização sem alterações) ...
+        # ... (o restante do código permanece inalterado) ...
         script_dir = os.path.dirname(os.path.realpath(__file__))
         with open(os.path.join(script_dir, "create_fipe_db.sql"), "r") as file:
             sql_script = file.read()
@@ -214,22 +220,17 @@ class FipeDataStack(Stack):
             description="Estágio da implantação (dev, stg, prd)"
         )
         
-        # Criar o stack filho FipeApiStack, passando o endpoint do PROXY
         print(f"Criando stack filho FipeApiStack para o estágio: {stage}")
         fipe_api_stack = FipeApiStack(
             self, 
             f"FipeApiStack-{stage}",
             vpc=vpc,
             db_cluster_endpoint=db_proxy.endpoint,
-            # #############################################################
-            # CORREÇÃO APLICADA AQUI
-            # #############################################################
             db_cluster_port=str(db_cluster.cluster_endpoint.port),
             db_secret_arn=db_credentials.secret_arn,
             stage=stage
         )
         
-        # Permitir que as funções Lambda do FipeApiStack se conectem ao RDS Proxy
         proxy_security_group.add_ingress_rule(
             fipe_api_stack.lambda_security_group,
             ec2.Port.tcp(5432),
