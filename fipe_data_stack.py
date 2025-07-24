@@ -84,7 +84,8 @@ class FipeDataStack(Stack):
             security_groups=[db_security_group],
             default_database_name="fipedata",
             cluster_identifier=f"FipeDataCluster-{stage}",
-            removal_policy=RemovalPolicy.DESTROY
+            removal_policy=RemovalPolicy.DESTROY,
+            writer=rds.ClusterInstance.serverless_v2("WriterInstance")
         )
         Tags.of(db_cluster).add("Stage", stage)
         proxy_security_group = ec2.SecurityGroup(
