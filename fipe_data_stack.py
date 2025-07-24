@@ -82,12 +82,14 @@ class FipeDataStack(Stack):
                 vpc=vpc,
                 vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
                 instance_type=ec2.InstanceType.of(
-                    ec2.InstanceClass.BURSTABLE3,
-                    ec2.InstanceSize.MEDIUM
+                    ec2.InstanceClass.SERVERLESS,
+                    ec2.InstanceSize.R6G_LARGE # Este valor será ignorado para Serverless v2, mas é necessário para a sintaxe
                 ),
                 security_groups=[db_security_group],
                 publicly_accessible=True
             ),
+            serverless_v2_min_capacity=1,
+            serverless_v2_max_capacity=1,
             default_database_name="fipedata",
             cluster_identifier=f"FipeDataCluster-{stage}",
             removal_policy=RemovalPolicy.DESTROY
