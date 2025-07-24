@@ -85,7 +85,7 @@ class FipeDataStack(Stack):
             cluster_identifier=f"fipedata-sls-{stage}",
             removal_policy=RemovalPolicy.DESTROY,
             scaling=rds.ServerlessScalingOptions(
-                min_capacity=rds.AuroraCapacityUnit.ACU_0_5,
+                min_capacity=rds.AuroraCapacityUnit.ACU_1,
                 max_capacity=rds.AuroraCapacityUnit.ACU_1,
                 auto_pause=None,
             ),
