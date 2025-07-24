@@ -71,26 +71,26 @@ class FipeDataStack(Stack):
             )
         )
         Tags.of(db_credentials).add("Stage", stage)
-        db_cluster = rds.ServerlessCluster(
-            self,
-            f"FipeDataCluster-{stage}",
+        db_cluster = rds.DatabaseCluster(
+            self, f"FipeDataCluster-{stage}",
             engine=rds.DatabaseClusterEngine.aurora_postgres(
-                version=rds.AuroraPostgresEngineVersion.VER_15_3  # 👈 versão explícita!
+                version=rds.AuroraPostgresEngineVersion.VER_15_3
             ),
-            vpc=vpc,
-            vpc_subnets=ec2.SubnetSelection(
-                subnet_type=ec2.SubnetType.PUBLIC  # ou PRIVATE se preferir
-            ),
-            security_groups=[db_security_group],
-            default_database_name="fipedata",
             credentials=rds.Credentials.from_secret(db_credentials),
-            cluster_identifier=f"fipedata-sls-{stage}",
-            removal_policy=RemovalPolicy.DESTROY,
-            scaling=rds.ServerlessScalingOptions(
-                min_capacity=rds.AuroraCapacityUnit.ACU_1,
-                max_capacity=rds.AuroraCapacityUnit.ACU_1,
+            instances=1,
+            instance_props=rds.InstanceProps(
+                vpc=vpc,
+                vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
+                instance_type=ec2.InstanceType.of(
+                    ec2.InstanceClass.BURSTABLE3,
+                    ec2.InstanceSize.MEDIUM
+                ),
+                security_groups=[db_security_group],
+                publicly_accessible=True
             ),
-            enable_data_api=True,
+            default_database_name="fipedata",
+            cluster_identifier=f"FipeDataCluster-{stage}",
+            removal_policy=RemovalPolicy.DESTROY
         )
         Tags.of(db_cluster).add("Stage", stage)
         proxy_security_group = ec2.SecurityGroup(
