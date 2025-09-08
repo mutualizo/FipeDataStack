@@ -65,13 +65,15 @@ def get_or_create_manufacturer(conn, manufacturer, manufacturer_code, vehicle_ty
     with conn.cursor() as cur:
         try:
             logger.info(f"INGESTOR-MANUFACT - Verificando fabricante: {manufacturer}, código: {manufacturer_code}, tipo: {vehicle_type}")
-            cur.execute("SELECT id FROM public.fipe_vehicle_manufacturer WHERE name = %s AND code = %s AND vehicle_type = %s", (manufacturer, manufacturer_code, vehicle_type))
+            cur.execute("SELECT id FROM public.fipe_vehicle_manufacturer WHERE name = %s AND code = %s AND vehicle_type = %s", 
+                        (manufacturer, manufacturer_code, vehicle_type))
             result = cur.fetchone()
             if result:
                 logger.info(f"INGESTOR-MANUFACT - Fabricante encontrado com ID: {result[0]}")
                 return result[0]
             logger.info(f"INGESTOR-MANUFACT - Criando novo fabricante: {manufacturer}")
-            cur.execute("INSERT INTO public.fipe_vehicle_manufacturer (name, code, vehicle_type, create_date, create_uid, write_date, write_uid) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id", (manufacturer, manufacturer_code, vehicle_type, datetime.now(), 1, datetime.now(), 1))
+            cur.execute("INSERT INTO public.fipe_vehicle_manufacturer (name, code, vehicle_type, create_date, create_uid, write_date, write_uid, active) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id", 
+                        (manufacturer, manufacturer_code, vehicle_type, datetime.now(), 1, datetime.now(), 1, True))
             manufacturer_id = cur.fetchone()[0]
             conn.commit()
             logger.info(f"INGESTOR-MANUFACT - Novo fabricante criado com ID: {manufacturer_id}")
@@ -91,7 +93,8 @@ def get_or_create_model(conn, model, model_code, manufacturer_id):
                 logger.info(f"INGESTOR-MODEL - Modelo encontrado com ID: {result[0]}")
                 return result[0]
             logger.info(f"INGESTOR-MODEL - Criando novo modelo: {model}")
-            cur.execute("INSERT INTO public.fipe_vehicle_model (name, code, manufacturer_id, create_date, create_uid, write_date, write_uid) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id", (str(model), str(model_code), manufacturer_id, datetime.now(), 1, datetime.now(), 1))
+            cur.execute("INSERT INTO public.fipe_vehicle_model (name, code, manufacturer_id, create_date, create_uid, write_date, write_uid, active) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id", 
+                        (str(model), str(model_code), manufacturer_id, datetime.now(), 1, datetime.now(), 1, True))
             model_id = cur.fetchone()[0]
             conn.commit()
             logger.info(f"INGESTOR-MODEL - Novo modelo criado com ID: {model_id}")
@@ -111,10 +114,12 @@ def insert_edit_model_value(conn, data):
             existing_value = cur.fetchone()
             if existing_value:
                 logger.info(f"INGESTOR-INSERT - Atualizando valor existente para: {data['model']} {data['model_year_code']}")
-                cur.execute("UPDATE public.fipe_vehicle_model_value SET fipe_value = %s, reference_month_id = %s, write_date = %s WHERE id = %s", (fipe_value, int(data['reference_id']),datetime.now(), existing_value[0]))
+                cur.execute("UPDATE public.fipe_vehicle_model_value SET fipe_value = %s, reference_month_id = %s, write_date = %s WHERE id = %s", 
+                            (fipe_value, int(data['reference_id']),datetime.now(), existing_value[0]))
             else:
                 logger.info(f"INGESTOR-INSERT - Inserindo novo valor para: {data['model']} {data['model_year_code']}")
-                cur.execute("INSERT INTO public.fipe_vehicle_model_value ( name, code, model_id, fipe_code, manufacturer_id, manufacture_year, reference_month, reference_month_code, reference_month_id, fipe_value, fuel_type, vehicle_type, active, create_date, create_uid, write_date, write_uid ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (f"{data['model']} {data['model_year_code']}", str(data['model_code']), int(data['model_id']), str(data['fipe_code']), int(data['manufacturer_id']), str(data['model_year_code']), str(data['reference_month']), str(data['reference_month_code']), int(data['reference_id']), fipe_value, str(data['fuel_type']), int(data['vehicle_type']), True, datetime.now(), 1, datetime.now(), 1))
+                cur.execute("INSERT INTO public.fipe_vehicle_model_value ( name, code, model_id, fipe_code, manufacturer_id, manufacture_year, reference_month, reference_month_code, reference_month_id, fipe_value, fuel_type, vehicle_type, active, create_date, create_uid, write_date, write_uid ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", 
+                            (f"{data['model']} {data['model_year_code']}", str(data['model_code']), int(data['model_id']), str(data['fipe_code']), int(data['manufacturer_id']), str(data['model_year_code']), str(data['reference_month']), str(data['reference_month_code']), int(data['reference_id']), fipe_value, str(data['fuel_type']), int(data['vehicle_type']), True, datetime.now(), 1, datetime.now(), 1))
             conn.commit()
             logger.info(f"INGESTOR-INSERT - Valor do modelo processado com sucesso: {data['model']} {data['model_year_code']}")
         except Exception as e:

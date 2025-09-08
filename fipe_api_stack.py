@@ -82,35 +82,99 @@ class FipeApiStack(NestedStack):
         db_secret.grant_read(db_lambda_role)
         print(f"Permissão para acessar o segredo do banco de dados concedida à role")
         
-        manufacturer_dlq = sqs.Queue(self, f"FipeManufacturerDLQ-{stage}", visibility_timeout=Duration.seconds(300), retention_period=Duration.days(14), queue_name=f"fipe-manufacturer-dlq-{stage}")
+        manufacturer_dlq = sqs.Queue(self, 
+                                     f"FipeManufacturerDLQ-{stage}", 
+                                     visibility_timeout=Duration.seconds(600), 
+                                     retention_period=Duration.days(14), 
+                                     queue_name=f"fipe-manufacturer-dlq-{stage}")
         Tags.of(manufacturer_dlq).add("Stage", stage)
-        model_dlq = sqs.Queue(self, f"FipeModelDLQ-{stage}", visibility_timeout=Duration.seconds(300), retention_period=Duration.days(14), queue_name=f"fipe-model-dlq-{stage}")
+        model_dlq = sqs.Queue(self, 
+                              f"FipeModelDLQ-{stage}", 
+                              visibility_timeout=Duration.seconds(600), 
+                              retention_period=Duration.days(14), 
+                              queue_name=f"fipe-model-dlq-{stage}")
         Tags.of(model_dlq).add("Stage", stage)
-        price_dlq = sqs.Queue(self, f"FipePriceDLQ-{stage}", visibility_timeout=Duration.seconds(300), retention_period=Duration.days(14), queue_name=f"fipe-price-dlq-{stage}")
+        price_dlq = sqs.Queue(self, 
+                              f"FipePriceDLQ-{stage}", 
+                              visibility_timeout=Duration.seconds(600), 
+                              retention_period=Duration.days(14), 
+                              queue_name=f"fipe-price-dlq-{stage}")
         Tags.of(price_dlq).add("Stage", stage)
         
-        manufacturer_queue = sqs.Queue(self, f"FipeManufacturerQueue-{stage}", visibility_timeout=Duration.seconds(300), retention_period=Duration.days(4), queue_name=f"fipe-manufacturer-queue-{stage}", dead_letter_queue=sqs.DeadLetterQueue(max_receive_count=5, queue=manufacturer_dlq))
+        manufacturer_queue = sqs.Queue(self, 
+                                       f"FipeManufacturerQueue-{stage}", 
+                                       visibility_timeout=Duration.seconds(600), 
+                                       retention_period=Duration.days(4), 
+                                       queue_name=f"fipe-manufacturer-queue-{stage}", 
+                                       dead_letter_queue=sqs.DeadLetterQueue(
+                                           max_receive_count=6, 
+                                           queue=manufacturer_dlq))
         Tags.of(manufacturer_queue).add("Stage", stage)
         print(f"Fila SQS para fabricantes criada: {manufacturer_queue.queue_name}")
-        model_queue = sqs.Queue(self, f"FipeModelQueue-{stage}", visibility_timeout=Duration.seconds(300), retention_period=Duration.days(4), queue_name=f"fipe-model-queue-{stage}", dead_letter_queue=sqs.DeadLetterQueue(max_receive_count=5, queue=model_dlq))
+        model_queue = sqs.Queue(self, 
+                                f"FipeModelQueue-{stage}", 
+                                visibility_timeout=Duration.seconds(600), 
+                                retention_period=Duration.days(4), 
+                                queue_name=f"fipe-model-queue-{stage}", 
+                                dead_letter_queue=sqs.DeadLetterQueue(
+                                    max_receive_count=6, 
+                                    queue=model_dlq))
         Tags.of(model_queue).add("Stage", stage)
         print(f"Fila SQS para modelos criada: {model_queue.queue_name}")
-        price_queue = sqs.Queue(self, f"FipePriceQueue-{stage}", visibility_timeout=Duration.seconds(300), retention_period=Duration.days(4), queue_name=f"fipe-price-queue-{stage}", dead_letter_queue=sqs.DeadLetterQueue(max_receive_count=5, queue=price_dlq))
+        price_queue = sqs.Queue(self, 
+                                f"FipePriceQueue-{stage}", 
+                                visibility_timeout=Duration.seconds(600), 
+                                retention_period=Duration.days(4), 
+                                queue_name=f"fipe-price-queue-{stage}", 
+                                dead_letter_queue=sqs.DeadLetterQueue(
+                                    max_receive_count=6, 
+                                    queue=price_dlq))
         Tags.of(price_queue).add("Stage", stage)
         print(f"Fila SQS para preços criada: {price_queue.queue_name}")
         print("Filas DLQ configuradas para todas as filas SQS")
         
-        lambda_layer = lambda_.LayerVersion(self, f"FipeApiLayer-{stage}", code=lambda_.Code.from_asset("fipe_api_layer.zip"), compatible_runtimes=[lambda_.Runtime.PYTHON_3_10], description=f"Layer for FIPE API Lambda functions - {stage}")
+        lambda_layer = lambda_.LayerVersion(self, 
+                                            f"FipeApiLayer-{stage}", 
+                                            code=lambda_.Code.from_asset("fipe_api_layer.zip"), 
+                                            compatible_runtimes=[lambda_.Runtime.PYTHON_3_10], 
+                                            description=f"Layer for FIPE API Lambda functions - {stage}")
         Tags.of(lambda_layer).add("Stage", stage)
         print(f"Camada Lambda para FIPE API criada a partir do arquivo ZIP")
         
         common_env = {"STAGE": stage, "URL_FIPE": "http://veiculos.fipe.org.br/api/veiculos"}
-        manufacturer_loader_env = {**common_env, "SQS_OUTPUT_URL": manufacturer_queue.queue_url, "TEST": "false"}
-        model_loader_env = {**common_env, "SQS_INPUT_URL": manufacturer_queue.queue_url, "SQS_OUTPUT_URL": model_queue.queue_url}
-        price_loader_env = {**common_env, "SQS_INPUT_URL": model_queue.queue_url, "SQS_OUTPUT_URL": price_queue.queue_url}
-        ingestor_env = {**common_env, "SQS_INPUT_URL": price_queue.queue_url, "RDS_HOST": db_cluster_endpoint, "RDS_PORT": db_cluster_port, "RDS_DATABASE": "fipedata", "RDS_USER": "postgres", "DB_SECRET_ARN": db_secret_arn}
+        manufacturer_loader_env = {**common_env, 
+                                   "SQS_OUTPUT_URL": manufacturer_queue.queue_url, 
+                                   "TEST": "false"}
+        model_loader_env = {**common_env, 
+                            "SQS_INPUT_URL": manufacturer_queue.queue_url, 
+                            "SQS_OUTPUT_URL": model_queue.queue_url}
+        price_loader_env = {**common_env, 
+                            "SQS_INPUT_URL": model_queue.queue_url, 
+                            "SQS_OUTPUT_URL": price_queue.queue_url}
+        ingestor_env = {**common_env, 
+                        "SQS_INPUT_URL": price_queue.queue_url, 
+                        "RDS_HOST": db_cluster_endpoint, 
+                        "RDS_PORT": db_cluster_port, 
+                        "RDS_DATABASE": "fipedata", 
+                        "RDS_USER": "postgres", 
+                        "DB_SECRET_ARN": db_secret_arn}
         
-        manufacturer_lambda = lambda_.Function(self, f"FipeManufacturerLoader-{stage}", function_name=f"FipeManufacturerLoader-{stage}", runtime=lambda_.Runtime.PYTHON_3_10, code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]), handler="fipe_manufacturer_loader.lambda_handler", timeout=Duration.minutes(5), memory_size=256, environment=manufacturer_loader_env, role=lambda_role, layers=[lambda_layer], description="Função para carregar fabricantes da API FIPE")
+        manufacturer_lambda = lambda_.Function(
+            self, 
+            f"FipeManufacturerLoader-{stage}", 
+            function_name=f"FipeManufacturerLoader-{stage}", 
+            runtime=lambda_.Runtime.PYTHON_3_10, 
+            code=lambda_.Code.from_asset(
+                "code_lambdas/src/fipe_api", 
+                exclude=["__pycache__", "*.pyc"]), 
+            handler="fipe_manufacturer_loader.lambda_handler", 
+            timeout=Duration.minutes(5), 
+            memory_size=256, 
+            environment=manufacturer_loader_env, 
+            role=lambda_role, 
+            layers=[lambda_layer], 
+            description="Função para carregar fabricantes da API FIPE"
+        )
         Tags.of(manufacturer_lambda).add("Stage", stage)
         Tags.of(manufacturer_lambda).add("Function", "FipeManufacturerLoader")
         print(f"Lambda FipeManufacturerLoader criada: {manufacturer_lambda.function_name}")
