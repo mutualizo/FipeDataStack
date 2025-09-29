@@ -27,53 +27,57 @@ class FipeDataStack(Stack):
         Tags.of(self).add("Stage", stage)
         Tags.of(self).add("Application", "FipeData")
 
-        # Obter parâmetros da VPC e IP permitido do contexto do CDK
         vpc_id = self.node.try_get_context("vpc_id")
         if not vpc_id:
-            raise ValueError("O parâmetro 'vpc_id' deve ser fornecido no contexto do CDK.")
+            raise ValueError("O parametro 'vpc_id' deve ser fornecido no contexto do CDK.")
         
         vpc = ec2.Vpc.from_lookup(self, "ImportedVpc", vpc_id=vpc_id)
         
         allowed_ip = self.node.try_get_context("allowed_ip")
         if not allowed_ip:
-            raise ValueError("O parâmetro 'allowed_ip' deve ser fornecido no contexto do CDK.")
+            raise ValueError("O parametro 'allowed_ip' deve ser fornecido no contexto do CDK.")
+
+        # #############################################################
+        # INÍCIO DA CORREÇÃO: Descrições ajustadas para usar apenas caracteres ASCII
+        # #############################################################
 
         # Security Group para o cluster do banco de dados
         db_security_group = ec2.SecurityGroup(
             self, f"FipeDataSecurityGroup-{stage}",
             vpc=vpc,
-            description=f"Security group for the FIPE PostgreSQL database - {stage}",
+            description=f"Security group for FIPE PostgreSQL database - {stage}", # Descricao em ingles (ASCII)
             allow_all_outbound=True
         )
         Tags.of(db_security_group).add("Stage", stage)
         
-        # Permite acesso ao banco de dados a partir de um IP específico
         db_security_group.add_ingress_rule(
             ec2.Peer.ipv4(f"{allowed_ip}/32"),
             ec2.Port.tcp(5432),
-            description="Acesso PostgreSQL a partir de um IP específico"
+            description="PostgreSQL access from a specific IP" # Descricao em ingles (ASCII)
         )
 
         # Security Group para a Lambda de inicialização
         lambda_security_group = ec2.SecurityGroup(
             self, f"LambdaSecurityGroup-{stage}",
             vpc=vpc,
-            description=f"Security group para a função Lambda de inicialização do BD - {stage}",
+            description=f"Security group for the DB init Lambda function - {stage}", # Descricao em ingles (ASCII)
             allow_all_outbound=True
         )
         Tags.of(lambda_security_group).add("Stage", stage)
         
-        # Permite que a Lambda de inicialização se conecte ao banco
         db_security_group.add_ingress_rule(
             lambda_security_group,
             ec2.Port.tcp(5432),
-            "Permite que a Lambda de configuração inicial se conecte ao BD"
+            description="Allows connection from the DB setup Lambda" # Descricao em ingles (ASCII)
         )
+        
+        # #############################################################
+        # FIM DA CORREÇÃO
+        # #############################################################
 
-        # Criação do segredo para as credenciais do banco de dados no Secrets Manager
         db_credentials = secretsmanager.Secret(
             self, f"FipeDataDBCredentials-{stage}",
-            description=f"Credenciais do banco de dados FIPE PostgreSQL - {stage}",
+            description=f"Credentials for FIPE PostgreSQL database - {stage}",
             generate_secret_string=secretsmanager.SecretStringGenerator(
                 secret_string_template='{"username": "postgres"}',
                 generate_string_key="password",
@@ -83,7 +87,6 @@ class FipeDataStack(Stack):
         )
         Tags.of(db_credentials).add("Stage", stage)
 
-        # Criação do Cluster Aurora Serverless v2 PostgreSQL
         db_cluster = rds.DatabaseCluster(
             self, f"FipeDataCluster-{stage}",
             engine=rds.DatabaseClusterEngine.aurora_postgres(
@@ -102,12 +105,6 @@ class FipeDataStack(Stack):
         )
         Tags.of(db_cluster).add("Stage", stage)
 
-        # ###############################################################
-        # INÍCIO DA MODIFICAÇÃO: Seção do RDS Proxy foi completamente removida.
-        # As funções Lambda se conectarão diretamente ao endpoint do cluster.
-        # ###############################################################
-
-        # Preparação do script SQL para a Lambda de inicialização
         script_dir = os.path.dirname(os.path.realpath(__file__))
         lambda_assets_dir = os.path.join(script_dir, "lambda", "assets")
         if not os.path.exists(lambda_assets_dir):
@@ -117,7 +114,6 @@ class FipeDataStack(Stack):
              open(os.path.join(lambda_assets_dir, "create_fipe_db.sql"), "w") as dest_file:
             dest_file.write(src_file.read())
 
-        # Endpoint da VPC para o Secrets Manager
         secretsmanager_endpoint = ec2.InterfaceVpcEndpoint(
             self, f"SecretsManagerEndpoint-{stage}",
             vpc=vpc,
@@ -129,10 +125,9 @@ class FipeDataStack(Stack):
         secretsmanager_endpoint.connections.allow_from(
             lambda_security_group,
             ec2.Port.tcp(443),
-            "Permite que a Lambda acesse o Secrets Manager pelo endpoint da VPC"
+            "Allow Lambda to access Secrets Manager via VPC endpoint" # Descricao em ingles (ASCII)
         )
 
-        # Role para a Lambda de inicialização
         lambda_role = iam.Role(
             self, f"SQLScriptExecutionRole-{stage}",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
@@ -144,16 +139,14 @@ class FipeDataStack(Stack):
         Tags.of(lambda_role).add("Stage", stage)
         db_credentials.grant_read(lambda_role)
 
-        # Camada (Layer) com a biblioteca psycopg2
         psycopg2_layer = lambda_.LayerVersion(
             self, f"Psycopg2Layer-{stage}",
             code=lambda_.Code.from_asset("lambda-layer"),
             compatible_runtimes=[lambda_.Runtime.PYTHON_3_10],
-            description=f"Camada com psycopg2 para conectividade PostgreSQL - {stage}"
+            description=f"Layer with psycopg2 for PostgreSQL connectivity - {stage}"
         )
         Tags.of(psycopg2_layer).add("Stage", stage)
 
-        # Função Lambda para executar o script SQL de inicialização
         sql_execution_lambda = lambda_.Function(
             self, f"SQLExecutionLambda-{stage}",
             runtime=lambda_.Runtime.PYTHON_3_10,
@@ -177,7 +170,6 @@ class FipeDataStack(Stack):
         Tags.of(sql_execution_lambda).add("Stage", stage)
         sql_execution_lambda.node.add_dependency(db_cluster)
         
-        # Recurso customizado para invocar a Lambda durante o deploy
         provider = cr.Provider(
             self, f"SQLExecutionProvider-{stage}",
             on_event_handler=sql_execution_lambda
@@ -189,30 +181,27 @@ class FipeDataStack(Stack):
             service_token=provider.service_token
         )
 
-        # Outputs da Stack Principal
         CfnOutput(
             self, f"DBEndpoint-{stage}",
             value=db_cluster.cluster_endpoint.hostname,
-            description=f"Endpoint de escrita do cluster Aurora - {stage}"
+            description=f"Writer endpoint of the Aurora cluster - {stage}"
         )
         CfnOutput(
             self, f"DBReaderEndpoint-{stage}",
             value=db_cluster.cluster_read_endpoint.hostname,
-            description=f"Endpoint de leitura do cluster Aurora - {stage}"
+            description=f"Reader endpoint of the Aurora cluster - {stage}"
         )
         CfnOutput(
             self, f"DBPort-{stage}",
             value=str(db_cluster.cluster_endpoint.port),
-            description=f"A porta do cluster PostgreSQL Aurora - {stage}"
+            description=f"Port of the Aurora PostgreSQL cluster - {stage}"
         )
         CfnOutput(
             self, f"DBSecretArn-{stage}",
             value=db_credentials.secret_arn,
-            description=f"O ARN do segredo com as credenciais do banco de dados - {stage}"
+            description=f"ARN of the secret containing database credentials - {stage}"
         )
 
-        # Cria o stack filho FipeApiStack, passando o endpoint DIRETO do CLUSTER
-        print(f"Criando stack filho FipeApiStack para o estágio: {stage}")
         fipe_api_stack = FipeApiStack(
             self, 
             f"FipeApiStack-{stage}",
@@ -223,18 +212,10 @@ class FipeDataStack(Stack):
             stage=stage
         )
         
-        # ###############################################################
-        # INÍCIO DA MODIFICAÇÃO: Permite que as Lambdas do FipeApiStack acessem o banco de dados.
-        # ###############################################################
-        # Adiciona uma regra de entrada no Security Group do banco de dados para permitir
-        # a conexão a partir do Security Group das funções Lambda da FipeApiStack.
         db_security_group.add_ingress_rule(
             fipe_api_stack.lambda_security_group,
             ec2.Port.tcp(5432),
-            "Permite que as Lambdas da API FIPE se conectem ao Cluster RDS"
+            "Allow FipeApi Lambdas to connect to the RDS Cluster" # Descricao em ingles (ASCII)
         )
-        # ###############################################################
-        # FIM DA MODIFICAÇÃO
-        # ###############################################################
         
-        print(f"Stack filho FipeApiStack criado com sucesso para o estágio: {stage}")
+        print(f"Child stack FipeApiStack created successfully for stage: {stage}")
