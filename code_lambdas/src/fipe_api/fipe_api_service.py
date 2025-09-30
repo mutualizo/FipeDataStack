@@ -4,6 +4,7 @@ import boto3
 import os
 import time
 import logging
+import random
 
 HDRS = {
     "User-Agent": "Mozilla/5.0",
@@ -58,6 +59,12 @@ class FipeAPI:
             raise ValueError("Variável de ambiente URL_FIPE nao definida")
         self.reference_period = period
         self.get_reference_table()
+    
+    def _post(self, url, payload=None):
+        response = self.session.post( url, json=payload or {})
+        response.raise_for_status()
+        time.sleep(random.uniform(0.3, 0.7))  # throttle
+        return response.json()
 
     def get_reference_table(self):
         self.logger.info("REFTABLE - Starting to fetch reference table.")
@@ -65,9 +72,8 @@ class FipeAPI:
             mes = self.reference_period[0]
             ano = self.reference_period[1]
             url = f"{self.url_base}/ConsultarTabelaDeReferencia"
-            response = self.session.post(url)
-            response.raise_for_status()
-            self.reference_table = response.json()
+            response = self._post(url)
+            self.reference_table = response
             if self.reference_table:
                 if mes == 0 and ano == 0:
                     self.reference_table_code = self.reference_table[0].get("Codigo")
@@ -100,9 +106,8 @@ class FipeAPI:
             self.logger.info(
                 f"Fetching brands for vehicle type {vehicle_type} with payload: {payload}"
             )
-            response = self.session.post(url, json=payload)
-            response.raise_for_status()
-            brands = response.json()
+            response = self._post(url, payload)
+            brands = response
             self.logger.info(f"Brands for vehicle type {vehicle_type}: {brands}")
             return brands
         except Exception as e:
@@ -120,9 +125,8 @@ class FipeAPI:
         }
         self.logger.info(f"Querying models with payload: {payload}")
         try:
-            response = self.session.post(url, json=payload)
-            response.raise_for_status()
-            models = response.json()
+            response = self._post(url, payload)
+            models = response
             self.logger.info(f"Received response: {models}")
             time.sleep(1)  # Adding delay after successful request
             return models
@@ -139,11 +143,8 @@ class FipeAPI:
             "codigoModelo": model_code,
         }
         self.logger.info(f"Querying years with payload: {payload}")
-        time.sleep(1)  # Delay entre as requisições
-        response = self.session.post(url, json=payload)
-        response.raise_for_status()
-
-        years = response.json()
+        response = self._post(url, payload)
+        years = response
         self.logger.info(f"Raw API response: {years}")
 
         processed_years = []
@@ -198,11 +199,8 @@ class FipeAPI:
             "tipoConsulta": "tradicional",
         }
         self.logger.info(f"Querying price with payload: {payload}")
-        time.sleep(1)  # Delay entre as requisições
-        response = self.session.post(url, json=payload)
-        response.raise_for_status()
-
-        price = response.json()
+        response = self._post(url, payload)
+        price = response
         self.logger.info(f"Price obtained: {price}")
         return price
 

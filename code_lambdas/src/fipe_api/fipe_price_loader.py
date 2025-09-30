@@ -47,9 +47,10 @@ def lambda_handler(event, context):
         message_id = record["messageId"]
         try:
             message = json.loads(record["body"])
-            logger.info(f"Message received: {message} (Message ID: {message_id})")
+            logger.info(f"Message {message_id} received: {message}")
             
             if message.get("tabela_referencia"):
+                logger.info(f"Message {message_id} tabela referencia")
                 batch.append(message)
                 send_batch(batch)
                 batch.clear()
@@ -67,11 +68,12 @@ def lambda_handler(event, context):
                 reference_month_name = message.get("mesReferenciaAno", "Desconhecido")
     
                 retries = 5
-                delay = 5
+                delay = 10
                 success = False
                 while retries > 0 and not success:
                     try:
                         # Obtém os anos e tipos de combustível disponíveis
+                        logger.info(f"Message {message_id} obtendo os anos e tipos de combustível para {manufacturer_code}-{model_code}")
                         years, available_fuel_types = fipe_api.get_years(
                             manufacturer_code, model_code, vehicle_type
                         )
@@ -79,13 +81,14 @@ def lambda_handler(event, context):
                         for year in years:
                             year_model = year.get("yearModel", "Unknown")
                             year_name = year.get("Label", "Unknown")
-                            logger.info(f"Processing year: {year_model}, Label: {year_name}")
+                            logger.info(f"Message {message_id} processing year: {year_model}, Label: {year_name}")
     
                             for fuel_type in available_fuel_types:
                                 fuel_type_code = fuel_type.split("-")[-1] if "-" in fuel_type else fuel_type
     
                                 logger.info(
-                                    f"Attempting to get price for fuel type: {fuel_type_code} (Year: {year_model}, Model: {model_name})"
+                                    f"Message {message_id} attempting to get price for fuel type: " + \
+                                    f"{fuel_type_code} (Year: {year_model}, Model: {model_name})"
                                 )
     
                                 price = fipe_api.get_price(
@@ -112,7 +115,7 @@ def lambda_handler(event, context):
                                         "codigoTabelaReferencia": reference_table_code,
                                     }
                                     logger.info(
-                                        f"Data to be sent: {json.dumps(complete_data, indent=4, ensure_ascii=False)}"
+                                        f"Message {message_id} data to be sent: {json.dumps(complete_data, indent=4, ensure_ascii=False)}"
                                     )
                                     batch.append(complete_data)
                         success = True
@@ -121,32 +124,32 @@ def lambda_handler(event, context):
                     except requests.HTTPError as e:
                         if hasattr(e, 'response') and e.response.status_code == 429:
                             logger.warning(
-                                f"[429] - i. Waiting for {delay} seconds..."
+                                f"Message {message_id} response code 429 waiting for {delay} seconds..."
                             )
                             time.sleep(delay)
                             retries -= 1
                             delay *= 2  # Exponential backoff
                         else:
-                            logger.error(f"HTTP Error: {e}")
+                            logger.error(f"Message {message_id} HTTP Error: {e}")
                             batch_item_failures.append({"itemIdentifier": message_id})
                             break
     
                     except Exception as e:
-                        logger.error(f"Error processing message: {e}")
+                        logger.error(f"Message {message_id} error processing message: {e}")
                         batch_item_failures.append({"itemIdentifier": message_id})
                         break
                 
                 # Se esgotou as tentativas e ainda não teve sucesso
                 if retries == 0 and not success:
-                    logger.error(f"Esgotadas as tentativas para a mensagem {message_id}")
+                    logger.error(f"Message {message_id} esgotadas as 5 tentativas para a mensagem...")
                     batch_item_failures.append({"itemIdentifier": message_id})
                 
         except json.JSONDecodeError as e:
-            logger.error(f"Erro ao decodificar mensagem JSON: {str(e)}")
+            logger.error(f"Message {message_id} erro ao decodificar mensagem JSON: {str(e)}")
             batch_item_failures.append({"itemIdentifier": message_id})
             
         except Exception as e:
-            logger.error(f"Erro não tratado ao processar mensagem {message_id}: {str(e)}")
+            logger.error(f"Message {message_id} erro não tratado ao processar mensagem: {str(e)}")
             batch_item_failures.append({"itemIdentifier": message_id})
             
         if index % 10 == 0:
@@ -163,7 +166,7 @@ def lambda_handler(event, context):
     total_records = len(event["Records"])
     success_count = total_records - total_failures
     
-    logger.info(f"Processamento concluído: {success_count}/{total_records} mensagens processadas com sucesso")
+    logger.info(f"Processamento concluído: {success_count}/{total_records} mensagens processadas")
     
     if total_failures > 0:
         logger.warning(f"{total_failures} mensagens não puderam ser processadas")

@@ -200,7 +200,7 @@ class FipeApiStack(NestedStack):
             # #############################################################
             # MODIFICAÇÃO APLICADA AQUI
             # #############################################################
-            reserved_concurrent_executions=5
+            reserved_concurrent_executions=3
         )
         Tags.of(model_lambda).add("Stage", stage)
         Tags.of(model_lambda).add("Function", "FipeModelLoader")
@@ -222,7 +222,7 @@ class FipeApiStack(NestedStack):
             role=lambda_role,
             layers=[lambda_layer],
             description="Função para carregar preços da API FIPE",
-            reserved_concurrent_executions=5
+            reserved_concurrent_executions=3
         )
         Tags.of(price_lambda).add("Stage", stage)
         Tags.of(price_lambda).add("Function", "FipePriceLoader")

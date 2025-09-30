@@ -27,7 +27,6 @@ def process_vehicle_types(is_local=False, local_output_file=None, period=None):
     """
     fipe_api = FipeAPI(period=period)
     queue_url = os.getenv('SQS_OUTPUT_URL')
-    stage = os.getenv('STAGE')
     test = os.getenv('TEST')
     
     if not queue_url and not is_local:
