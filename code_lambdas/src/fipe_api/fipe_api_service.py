@@ -5,6 +5,14 @@ import os
 import time
 import logging
 
+HDRS = {
+    "User-Agent": "Mozilla/5.0",
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Referer": "https://veiculos.fipe.org.br/",
+    "Content-Type": "application/json; charset=UTF-8",
+    "X-Requested-With": "XMLHttpRequest",
+}
+
 def mes_ano_formatado(mes, ano):
     # Dicionário com os nomes dos meses em português
     meses = {
@@ -32,6 +40,8 @@ def mes_ano_formatado(mes, ano):
 class FipeAPI:
     # Inicializando o cliente SQS e o logger como atributos de classe
     sqs_client = boto3.client("sqs")
+    session = requests.Session()
+    session.headers.update(HDRS)
     logger = logging.getLogger(__name__)  # Definindo o nome do logger
     reference_period = (0,0,)
     reference_table = None
@@ -55,7 +65,7 @@ class FipeAPI:
             mes = self.reference_period[0]
             ano = self.reference_period[1]
             url = f"{self.url_base}/ConsultarTabelaDeReferencia"
-            response = requests.post(url)
+            response = self.session.post(url)
             response.raise_for_status()
             self.reference_table = response.json()
             if self.reference_table:
@@ -90,7 +100,7 @@ class FipeAPI:
             self.logger.info(
                 f"Fetching brands for vehicle type {vehicle_type} with payload: {payload}"
             )
-            response = requests.post(url, json=payload)
+            response = self.session.post(url, json=payload)
             response.raise_for_status()
             brands = response.json()
             self.logger.info(f"Brands for vehicle type {vehicle_type}: {brands}")
@@ -110,7 +120,7 @@ class FipeAPI:
         }
         self.logger.info(f"Querying models with payload: {payload}")
         try:
-            response = requests.post(url, json=payload)
+            response = self.session.post(url, json=payload)
             response.raise_for_status()
             models = response.json()
             self.logger.info(f"Received response: {models}")
@@ -130,7 +140,7 @@ class FipeAPI:
         }
         self.logger.info(f"Querying years with payload: {payload}")
         time.sleep(1)  # Delay entre as requisições
-        response = requests.post(url, json=payload)
+        response = self.session.post(url, json=payload)
         response.raise_for_status()
 
         years = response.json()
@@ -189,7 +199,7 @@ class FipeAPI:
         }
         self.logger.info(f"Querying price with payload: {payload}")
         time.sleep(1)  # Delay entre as requisições
-        response = requests.post(url, json=payload)
+        response = self.session.post(url, json=payload)
         response.raise_for_status()
 
         price = response.json()
