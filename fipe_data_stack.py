@@ -24,8 +24,8 @@ class FipeDataStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, stage: str = "dev", **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
         
-        Tags.of(self).add("Stage", stage)
-        Tags.of(self).add("Application", "FipeData")
+        Tags.of(self).add("stage", stage)
+        Tags.of(self).add("application", "FipeData")
 
         vpc_id = self.node.try_get_context("vpc_id")
         if not vpc_id:
@@ -48,7 +48,7 @@ class FipeDataStack(Stack):
             description=f"Security group for FIPE PostgreSQL database - {stage}", # Descricao em ingles (ASCII)
             allow_all_outbound=True
         )
-        Tags.of(db_security_group).add("Stage", stage)
+        Tags.of(db_security_group).add("stage", stage)
         
         db_security_group.add_ingress_rule(
             ec2.Peer.ipv4(f"{allowed_ip}/32"),
@@ -63,7 +63,7 @@ class FipeDataStack(Stack):
             description=f"Security group for the DB init Lambda function - {stage}", # Descricao em ingles (ASCII)
             allow_all_outbound=True
         )
-        Tags.of(lambda_security_group).add("Stage", stage)
+        Tags.of(lambda_security_group).add("stage", stage)
         
         db_security_group.add_ingress_rule(
             lambda_security_group,
@@ -85,7 +85,7 @@ class FipeDataStack(Stack):
                 include_space=False
             )
         )
-        Tags.of(db_credentials).add("Stage", stage)
+        Tags.of(db_credentials).add("stage", stage)
 
         db_cluster = rds.DatabaseCluster(
             self, f"FipeDataCluster-{stage}",
@@ -93,7 +93,7 @@ class FipeDataStack(Stack):
                 version=rds.AuroraPostgresEngineVersion.VER_15_3
             ),
             credentials=rds.Credentials.from_secret(db_credentials),
-            serverless_v2_min_capacity=0.5,
+            serverless_v2_min_capacity=0,
             serverless_v2_max_capacity=1,
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
@@ -103,7 +103,7 @@ class FipeDataStack(Stack):
             removal_policy=RemovalPolicy.DESTROY,
             writer=rds.ClusterInstance.serverless_v2("WriterInstance")
         )
-        Tags.of(db_cluster).add("Stage", stage)
+        Tags.of(db_cluster).add("stage", stage)
 
         script_dir = os.path.dirname(os.path.realpath(__file__))
         lambda_assets_dir = os.path.join(script_dir, "lambda", "assets")
@@ -121,7 +121,7 @@ class FipeDataStack(Stack):
             private_dns_enabled=True,
             subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC)
         )
-        Tags.of(secretsmanager_endpoint).add("Stage", stage)
+        Tags.of(secretsmanager_endpoint).add("stage", stage)
         secretsmanager_endpoint.connections.allow_from(
             lambda_security_group,
             ec2.Port.tcp(443),
@@ -136,7 +136,7 @@ class FipeDataStack(Stack):
                 iam.ManagedPolicy.from_aws_managed_policy_name("SecretsManagerReadWrite")
             ]
         )
-        Tags.of(lambda_role).add("Stage", stage)
+        Tags.of(lambda_role).add("stage", stage)
         db_credentials.grant_read(lambda_role)
 
         psycopg2_layer = lambda_.LayerVersion(
@@ -145,7 +145,7 @@ class FipeDataStack(Stack):
             compatible_runtimes=[lambda_.Runtime.PYTHON_3_10],
             description=f"Layer with psycopg2 for PostgreSQL connectivity - {stage}"
         )
-        Tags.of(psycopg2_layer).add("Stage", stage)
+        Tags.of(psycopg2_layer).add("stage", stage)
 
         sql_execution_lambda = lambda_.Function(
             self, f"SQLExecutionLambda-{stage}",
@@ -167,14 +167,14 @@ class FipeDataStack(Stack):
             role=lambda_role,
             layers=[psycopg2_layer]
         )
-        Tags.of(sql_execution_lambda).add("Stage", stage)
+        Tags.of(sql_execution_lambda).add("stage", stage)
         sql_execution_lambda.node.add_dependency(db_cluster)
         
         provider = cr.Provider(
             self, f"SQLExecutionProvider-{stage}",
             on_event_handler=sql_execution_lambda
         )
-        Tags.of(provider).add("Stage", stage)
+        Tags.of(provider).add("stage", stage)
         
         CustomResource(
             self, f"SQLExecutionCustomResource-{stage}",

@@ -50,7 +50,7 @@ def lambda_handler(event, context):
             logger.info(f"Message {message_id} received: {message}")
             
             if message.get("tabela_referencia"):
-                logger.info(f"Message {message_id} tabela referencia")
+                logger.info(f"Message {message_id} tabela referenciada!")
                 batch.append(message)
                 send_batch(batch)
                 batch.clear()
@@ -169,7 +169,10 @@ def lambda_handler(event, context):
     logger.info(f"Processamento concluído: {success_count}/{total_records} mensagens processadas")
     
     if total_failures > 0:
-        logger.warning(f"{total_failures} mensagens não puderam ser processadas")
+        msg_ids = ""
+        for item_fail in batch_item_failures:
+            msg_ids += f"{item_fail['itemIdentifier']}, "
+        logger.warning(f"{total_failures} mensagens não puderam ser processadas [{msg_ids}]")
 
     return {
         "statusCode": 200,
