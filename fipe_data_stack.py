@@ -26,6 +26,7 @@ class FipeDataStack(Stack):
         
         Tags.of(self).add("stage", stage)
         Tags.of(self).add("application", "FipeData")
+        Tags.of(self).add("service", f"fipe-{stage}-database")
 
         vpc_id = self.node.try_get_context("vpc_id")
         if not vpc_id:
