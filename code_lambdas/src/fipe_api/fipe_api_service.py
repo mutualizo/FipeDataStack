@@ -148,9 +148,9 @@ class FipeAPI:
         self.logger.info(f"Raw API response: {years}")
 
         if isinstance(years, dict):
-            if years.get("Erro"):
+            if years.get("erro"):
                 self.logger.warning(
-                    f"API returned an error for years: {years.get('Mensagem', 'Unknown error')}"
+                    f"API returned an error for years: {years.get('erro', 'Unknown error')}"
                 )
                 return [], set()
 
