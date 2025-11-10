@@ -120,7 +120,7 @@ def lambda_handler(event, context):
                                     batch = []  # Limpar o lote após envio
                                     
                                     # Pequeno delay entre lotes para evitar throttling
-                                    time.sleep(1)
+                                    time.sleep(delay)
                             
                             # Mensagem processada com sucesso
                             break

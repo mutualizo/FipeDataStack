@@ -118,6 +118,7 @@ def lambda_handler(event, context):
                                         f"Message {message_id} data to be sent: {json.dumps(complete_data, indent=4, ensure_ascii=False)}"
                                     )
                                     batch.append(complete_data)
+                                time.sleep(1)
                         success = True
                         break
     

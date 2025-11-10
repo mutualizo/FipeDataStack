@@ -103,31 +103,31 @@ class FipeApiStack(NestedStack):
         
         manufacturer_queue = sqs.Queue(self, 
                                        f"FipeManufacturerQueue-{stage}", 
-                                       visibility_timeout=Duration.seconds(600), 
+                                       visibility_timeout=Duration.seconds(1000), 
                                        retention_period=Duration.days(4), 
                                        queue_name=f"fipe-manufacturer-queue-{stage}", 
                                        dead_letter_queue=sqs.DeadLetterQueue(
-                                           max_receive_count=6, 
+                                           max_receive_count=10, 
                                            queue=manufacturer_dlq))
         Tags.of(manufacturer_queue).add("Stage", stage)
         print(f"Fila SQS para fabricantes criada: {manufacturer_queue.queue_name}")
         model_queue = sqs.Queue(self, 
                                 f"FipeModelQueue-{stage}", 
-                                visibility_timeout=Duration.seconds(600), 
+                                visibility_timeout=Duration.seconds(1000), 
                                 retention_period=Duration.days(4), 
                                 queue_name=f"fipe-model-queue-{stage}", 
                                 dead_letter_queue=sqs.DeadLetterQueue(
-                                    max_receive_count=6, 
+                                    max_receive_count=10, 
                                     queue=model_dlq))
         Tags.of(model_queue).add("Stage", stage)
         print(f"Fila SQS para modelos criada: {model_queue.queue_name}")
         price_queue = sqs.Queue(self, 
                                 f"FipePriceQueue-{stage}", 
-                                visibility_timeout=Duration.seconds(600), 
+                                visibility_timeout=Duration.seconds(1000), 
                                 retention_period=Duration.days(4), 
                                 queue_name=f"fipe-price-queue-{stage}", 
                                 dead_letter_queue=sqs.DeadLetterQueue(
-                                    max_receive_count=6, 
+                                    max_receive_count=10, 
                                     queue=price_dlq))
         Tags.of(price_queue).add("Stage", stage)
         print(f"Fila SQS para preços criada: {price_queue.queue_name}")
@@ -200,7 +200,7 @@ class FipeApiStack(NestedStack):
             # #############################################################
             # MODIFICAÇÃO APLICADA AQUI
             # #############################################################
-            reserved_concurrent_executions=3
+            reserved_concurrent_executions=2
         )
         Tags.of(model_lambda).add("Stage", stage)
         Tags.of(model_lambda).add("Function", "FipeModelLoader")
@@ -222,7 +222,7 @@ class FipeApiStack(NestedStack):
             role=lambda_role,
             layers=[lambda_layer],
             description="Função para carregar preços da API FIPE",
-            reserved_concurrent_executions=3
+            reserved_concurrent_executions=2
         )
         Tags.of(price_lambda).add("Stage", stage)
         Tags.of(price_lambda).add("Function", "FipePriceLoader")
@@ -255,7 +255,7 @@ class FipeApiStack(NestedStack):
             role=db_lambda_role,
             layers=[lambda_layer],
             description="Função para ingerir dados da FIPE no banco de dados",
-            reserved_concurrent_executions=30
+            reserved_concurrent_executions=10
         )
         Tags.of(ingestor_lambda).add("Stage", stage)
         Tags.of(ingestor_lambda).add("Function", "FipeSomaIngestor")
