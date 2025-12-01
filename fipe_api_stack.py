@@ -286,8 +286,8 @@ class FipeApiStack(NestedStack):
                 "MAIN_QUEUE_URLS": f"{manufacturer_queue.queue_url},{model_queue.queue_url},{price_queue.queue_url}",
             },
         )
-        Tags.of(ingestor_lambda).add("Stage", stage)
-        Tags.of(ingestor_lambda).add("Function", "RedriveDLQLambda")
+        Tags.of(redrive_lambda).add("Stage", stage)
+        Tags.of(redrive_lambda).add("Function", "RedriveDLQLambda")
         print(f"Lambda RedriveDLQLambda criada: {redrive_lambda.function_name}")
 
         
