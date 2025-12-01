@@ -173,7 +173,7 @@ class FipeApiStack(NestedStack):
             environment=manufacturer_loader_env, 
             role=lambda_role, 
             layers=[lambda_layer], 
-            description="Função para carregar fabricantes da API FIPE"
+            description="FIPE - 01) Função para carregar fabricantes da API FIPE"
         )
         Tags.of(manufacturer_lambda).add("Stage", stage)
         Tags.of(manufacturer_lambda).add("Function", "FipeManufacturerLoader")
@@ -196,7 +196,7 @@ class FipeApiStack(NestedStack):
             environment=model_loader_env,
             role=lambda_role,
             layers=[lambda_layer],
-            description="Função para carregar modelos da API FIPE",
+            description="FIPE - 02) Função para carregar modelos da API FIPE",
             # #############################################################
             # MODIFICAÇÃO APLICADA AQUI
             # #############################################################
@@ -221,7 +221,7 @@ class FipeApiStack(NestedStack):
             environment=price_loader_env,
             role=lambda_role,
             layers=[lambda_layer],
-            description="Função para carregar preços da API FIPE",
+            description="FIPE - 03) Função para carregar preços da API FIPE",
             reserved_concurrent_executions=2
         )
         Tags.of(price_lambda).add("Stage", stage)
@@ -254,7 +254,7 @@ class FipeApiStack(NestedStack):
             security_groups=[self.lambda_security_group],
             role=db_lambda_role,
             layers=[lambda_layer],
-            description="Função para ingerir dados da FIPE no banco de dados",
+            description="FIPE - 04) Função para ingerir dados da FIPE no banco de dados",
             reserved_concurrent_executions=5
         )
         Tags.of(ingestor_lambda).add("Stage", stage)
@@ -282,6 +282,7 @@ class FipeApiStack(NestedStack):
             role=lambda_role,
             timeout=Duration.seconds(300),
             memory_size=256,
+            description="FIPE - 05) Função para recuperar mensagens das DLQs e reenviá-las para as filas principais",
             environment={
                 "DLQ_URLS": f"{manufacturer_dlq.queue_url},{model_dlq.queue_url},{price_dlq.queue_url}",
                 "MAIN_QUEUE_URLS": f"{manufacturer_queue.queue_url},{model_queue.queue_url},{price_queue.queue_url}",
