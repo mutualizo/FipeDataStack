@@ -85,19 +85,19 @@ class FipeApiStack(NestedStack):
         manufacturer_dlq = sqs.Queue(self, 
                                      f"FipeManufacturerDLQ-{stage}", 
                                      visibility_timeout=Duration.seconds(600), 
-                                     retention_period=Duration.days(15), 
+                                     retention_period=Duration.days(14), 
                                      queue_name=f"fipe-manufacturer-dlq-{stage}")
         Tags.of(manufacturer_dlq).add("Stage", stage)
         model_dlq = sqs.Queue(self, 
                               f"FipeModelDLQ-{stage}", 
                               visibility_timeout=Duration.seconds(600), 
-                              retention_period=Duration.days(15), 
+                              retention_period=Duration.days(14), 
                               queue_name=f"fipe-model-dlq-{stage}")
         Tags.of(model_dlq).add("Stage", stage)
         price_dlq = sqs.Queue(self, 
                               f"FipePriceDLQ-{stage}", 
                               visibility_timeout=Duration.seconds(600), 
-                              retention_period=Duration.days(15), 
+                              retention_period=Duration.days(14), 
                               queue_name=f"fipe-price-dlq-{stage}")
         Tags.of(price_dlq).add("Stage", stage)
         
@@ -255,7 +255,7 @@ class FipeApiStack(NestedStack):
             role=db_lambda_role,
             layers=[lambda_layer],
             description="Função para ingerir dados da FIPE no banco de dados",
-            reserved_concurrent_executions=5
+            reserved_concurrent_executions=10
         )
         Tags.of(ingestor_lambda).add("Stage", stage)
         Tags.of(ingestor_lambda).add("Function", "FipeSomaIngestor")
