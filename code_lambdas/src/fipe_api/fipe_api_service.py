@@ -63,7 +63,7 @@ class FipeAPI:
     def _post(self, url, payload=None):
         response = self.session.post( url, json=payload or {})
         response.raise_for_status()
-        time.sleep(random.uniform(0.3, 0.7))  # throttle
+        time.sleep(random.uniform(0.5, 1.0))  # throttle
         return response.json()
 
     def get_reference_table(self):
