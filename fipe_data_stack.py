@@ -38,10 +38,6 @@ class FipeDataStack(Stack):
         if not allowed_ip:
             raise ValueError("O parametro 'allowed_ip' deve ser fornecido no contexto do CDK.")
 
-        # #############################################################
-        # INÍCIO DA CORREÇÃO: Descrições ajustadas para usar apenas caracteres ASCII
-        # #############################################################
-
         # Security Group para o cluster do banco de dados
         db_security_group = ec2.SecurityGroup(
             self, f"FipeDataSecurityGroup-{stage}",
@@ -71,11 +67,8 @@ class FipeDataStack(Stack):
             ec2.Port.tcp(5432),
             description="Allows connection from the DB setup Lambda" # Descricao em ingles (ASCII)
         )
-        
-        # #############################################################
-        # FIM DA CORREÇÃO
-        # #############################################################
 
+        # Secret Manager para as credenciais do banco de dados
         db_credentials = secretsmanager.Secret(
             self, f"FipeDataDBCredentials-{stage}",
             description=f"Credentials for FIPE PostgreSQL database - {stage}",

@@ -168,7 +168,7 @@ class FipeApiStack(NestedStack):
                 "code_lambdas/src/fipe_api", 
                 exclude=["__pycache__", "*.pyc"]), 
             handler="fipe_manufacturer_loader.lambda_handler", 
-            timeout=Duration.minutes(5), 
+            timeout=Duration.minutes(10), 
             memory_size=256, 
             environment=manufacturer_loader_env, 
             role=lambda_role, 
@@ -200,7 +200,7 @@ class FipeApiStack(NestedStack):
             # #############################################################
             # MODIFICAÇÃO APLICADA AQUI
             # #############################################################
-            reserved_concurrent_executions=2
+            reserved_concurrent_executions=1
         )
         Tags.of(model_lambda).add("Stage", stage)
         Tags.of(model_lambda).add("Function", "FipeModelLoader")
@@ -222,7 +222,7 @@ class FipeApiStack(NestedStack):
             role=lambda_role,
             layers=[lambda_layer],
             description="Função para carregar preços da API FIPE",
-            reserved_concurrent_executions=2
+            reserved_concurrent_executions=1
         )
         Tags.of(price_lambda).add("Stage", stage)
         Tags.of(price_lambda).add("Function", "FipePriceLoader")
@@ -255,7 +255,7 @@ class FipeApiStack(NestedStack):
             role=db_lambda_role,
             layers=[lambda_layer],
             description="Função para ingerir dados da FIPE no banco de dados",
-            reserved_concurrent_executions=10
+            reserved_concurrent_executions=5
         )
         Tags.of(ingestor_lambda).add("Stage", stage)
         Tags.of(ingestor_lambda).add("Function", "FipeSomaIngestor")

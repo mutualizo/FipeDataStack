@@ -3,7 +3,6 @@ import time
 import json
 import argparse
 from fipe_api_service import FipeAPI
-from pip._vendor.pygments.unistring import Pe
 
 def process_table_reference(fipe_api, queue_url):
     """
@@ -28,6 +27,7 @@ def process_vehicle_types(is_local=False, local_output_file=None, period=None):
     fipe_api = FipeAPI(period=period)
     queue_url = os.getenv('SQS_OUTPUT_URL')
     test = os.getenv('TEST')
+    force_type = os.getenv('FORCE_VEHICLE_TYPE', False)
     
     if not queue_url and not is_local:
         error_msg = "Variável de ambiente SQS_OUTPUT_URL não definida"
@@ -44,10 +44,22 @@ def process_vehicle_types(is_local=False, local_output_file=None, period=None):
     
     if not is_local:
         process_table_reference(fipe_api, queue_url)
-    
         time.sleep(5)
     
-    vehicle_types = [3, 1, 2]  # 1: Car, 2: Motorcycle, 3: Truck
+    if force_type:
+        vehicle_types = [int(force_type)]
+        if vehicle_types[0] not in [0, 1, 2, 3]:
+            error_msg = f"FORCE_VEHICLE_TYPE inválido: {force_type}. Deve ser 1, 2 ou 3."
+            print(error_msg)
+            return {
+                'statusCode': 500,
+                'body': error_msg
+            }
+        print(f"FORCE_VEHICLE_TYPE definido. Processando apenas o tipo de veículo: {force_type}")
+    
+    if not force_type or force_type == '0':
+        vehicle_types = [3, 1, 2]  # 1: Car, 2: Motorcycle, 3: Truck
+    
     delay = 5.0  # Delay aumentado para 5 segundos
 
     # Para armazenar mensagens localmente em vez de enviar para SQS
@@ -95,7 +107,8 @@ def process_vehicle_types(is_local=False, local_output_file=None, period=None):
                     print(f"Message sent to SQS for brand '{brand_name}'")
                 
                 time.sleep(delay)
-
+            print(f"Completed processing for vehicle type {vehicle_type}.")
+            time.sleep(120)  # Delay extra entre tipos de veículos
         except Exception as e: 
             print(f"Error processing vehicle type {vehicle_type}: {e}")
 
