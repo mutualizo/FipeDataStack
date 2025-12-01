@@ -279,6 +279,7 @@ class FipeApiStack(NestedStack):
             runtime=lambda_.Runtime.PYTHON_3_10,
             handler="fipe_redrive_flq.lambda_handler",
             code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]),
+            role=lambda_role,
             timeout=Duration.seconds(300),
             memory_size=256,
             environment={
