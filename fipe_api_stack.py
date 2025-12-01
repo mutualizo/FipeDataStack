@@ -222,7 +222,7 @@ class FipeApiStack(NestedStack):
             role=lambda_role,
             layers=[lambda_layer],
             description="Função para carregar preços da API FIPE",
-            reserved_concurrent_executions=1
+            reserved_concurrent_executions=2
         )
         Tags.of(price_lambda).add("Stage", stage)
         Tags.of(price_lambda).add("Function", "FipePriceLoader")
@@ -270,6 +270,24 @@ class FipeApiStack(NestedStack):
             )
         )
         print(f"Fonte de evento SQS adicionada à Lambda {ingestor_lambda.function_name}")
+
+        print("Criando função RedriveLambda...")
+        redrive_lambda = lambda_.Function(
+            self,
+            f"RedriveDLQLambda-{stage}",
+            function_name=f"RedriveDLQLambda-{stage}",
+            runtime=lambda_.Runtime.PYTHON_3_10,
+            handler="fipe_redrive_flq.lambda_handler",
+            code=lambda_.Code.from_asset("lambda"),
+            code=lambda_.Code.from_asset("code_lambdas/src/fipe_redrive_flq", exclude=["__pycache__", "*.pyc"]),
+            timeout=Duration.seconds(300),
+            memory_size=256,
+            environment={
+                "DLQ_URLS": f"{manufacturer_dlq.queue_url},{model_dlq.queue_url},{price_dlq.queue_url}",
+                "MAIN_QUEUE_URLS": f"{manufacturer_queue.queue_url},{model_queue.queue_url},{price_queue.queue_url}",
+            },
+        )
+
         
         # ... (restante do código de outputs sem alterações) ...
         CfnOutput(self, f"ManufacturerQueueUrl-{stage}", value=manufacturer_queue.queue_url, description=f"URL da fila SQS para fabricantes - {stage}")

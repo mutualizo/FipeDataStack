@@ -5,7 +5,7 @@ import time
 sqs = boto3.client("sqs")
 ONE_HOUR_MS = 3600 * 1000
 
-def handler(event, context):
+def lambda_handler(event, context):
     dlqs = os.environ["DLQ_URLS"].split(",")
     target_queues = os.environ["MAIN_QUEUE_URLS"].split(",")
 
