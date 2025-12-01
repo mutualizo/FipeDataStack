@@ -2,19 +2,28 @@ import os
 import time
 import json
 import argparse
+import logging
 from fipe_api_service import FipeAPI
+
+# Configure logger
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
 
 def process_table_reference(fipe_api, queue_url):
     """
     Função para processar a tabela de referência de veículos
     """
+    logger.info(f"Processando tabela de referência {fipe_api.reference_table}...")
     
     message = {
         "tabela_referencia": fipe_api.reference_table
     }
     
     fipe_api.send_message_sqs(queue_url, message)
-        
+    logger.info("Tabela de referência enviada para SQS.")    
+    
+    
         
 def process_vehicle_types(is_local=False, local_output_file=None, period=None):
     """
@@ -26,12 +35,14 @@ def process_vehicle_types(is_local=False, local_output_file=None, period=None):
     """
     fipe_api = FipeAPI(period=period)
     queue_url = os.getenv('SQS_OUTPUT_URL')
-    test = os.getenv('TEST')
     force_type = os.getenv('FORCE_VEHICLE_TYPE', False)
+    force_model = os.getenv('FORCE_VEHICLE_MODEL', False)
+    
+    logger.info(f"Iniciando o processamento dos tipos de veículos...")
     
     if not queue_url and not is_local:
         error_msg = "Variável de ambiente SQS_OUTPUT_URL não definida"
-        print(error_msg)
+        logger.error(error_msg)
         return {
             'statusCode': 500, 
             'body': error_msg
@@ -40,7 +51,7 @@ def process_vehicle_types(is_local=False, local_output_file=None, period=None):
     if is_local:
         queue_url = 'https://sqs.dummy-url-for-local-testing.com'
     
-    print(f"Usando fila de saída: {queue_url}")
+    logger.info(f"Usando fila de saída: {queue_url}")
     
     if not is_local:
         process_table_reference(fipe_api, queue_url)
@@ -50,12 +61,12 @@ def process_vehicle_types(is_local=False, local_output_file=None, period=None):
         vehicle_types = [int(force_type)]
         if vehicle_types[0] not in [0, 1, 2, 3]:
             error_msg = f"FORCE_VEHICLE_TYPE inválido: {force_type}. Deve ser 1, 2 ou 3."
-            print(error_msg)
+            logger.error(error_msg)
             return {
                 'statusCode': 500,
                 'body': error_msg
             }
-        print(f"FORCE_VEHICLE_TYPE definido. Processando apenas o tipo de veículo: {force_type}")
+        logger.info(f"FORCE_VEHICLE_TYPE definido. Processando apenas o tipo de veículo: {force_type}")
     
     if not force_type or force_type == '0':
         vehicle_types = [3, 1, 2]  # 1: Car, 2: Motorcycle, 3: Truck
@@ -67,61 +78,61 @@ def process_vehicle_types(is_local=False, local_output_file=None, period=None):
 
     for vehicle_type in vehicle_types:
         try:
-            print(f"Starting process for vehicle type {vehicle_type}...")
+            logger.info(f"Starting process for vehicle type {vehicle_type}...")
             brands = fipe_api.get_brands(vehicle_type)
             
             if not brands:
-                print(f"No brands found for vehicle type {vehicle_type}.")
+                logger.warning(f"No brands found for vehicle type {vehicle_type}.")
                 continue
 
-            print(f"Found {len(brands)} brands for vehicle type {vehicle_type}.")
+            logger.info(f"Found {len(brands)} brands for vehicle type {vehicle_type}.")
 
             for index, brand in enumerate(brands, start=1):
-                if test == 'true' and index > 3:
-                    print(f"Skipping brand {brand.get('Label')} for vehicle type {vehicle_type} in dev test.")
-                    continue
                 brand_code = str(brand.get('Value'))
                 brand_name = str(brand.get('Label'))
-                
+
                 if not (brand_code and brand_name):
-                    print(f"Missing 'Value' or 'Label' in brand: {brand}")
+                    logger.error(f"Missing 'Value' or 'Label' in brand: {brand}")
                     continue
 
-                print(f"Processing brand '{brand_name}' (Code: {brand_code}) for vehicle type {vehicle_type}.")
-
-                message = {
-                    "codigoTabelaReferencia": fipe_api.reference_table_code,
-                    "mesReferenciaAno": fipe_api.reference_month_name,
-                    "codigoMarca": brand_code,
-                    "nomeMarca": brand_name,
-                    "codigoTipoVeiculo": vehicle_type
-                }
-                
-                if is_local:
-                    # Salvar mensagem localmente em vez de enviar para SQS
-                    local_messages.append(message)
-                    print(f"Locally saved message for brand '{brand_name}'")
-                else:
-                    # Enviar para SQS quando estiver no Lambda
-                    fipe_api.send_message_sqs(queue_url, message)
-                    print(f"Message sent to SQS for brand '{brand_name}'")
-                
-                time.sleep(delay)
-            print(f"Completed processing for vehicle type {vehicle_type}.")
+                if not force_model or str(force_model).upper() == str(brand_name).upper():  
+                    
+    
+                    logger.info(f"Processing brand '{brand_name}' (Code: {brand_code}) for vehicle type {vehicle_type}.")
+    
+                    message = {
+                        "codigoTabelaReferencia": fipe_api.reference_table_code,
+                        "mesReferenciaAno": fipe_api.reference_month_name,
+                        "codigoMarca": brand_code,
+                        "nomeMarca": brand_name,
+                        "codigoTipoVeiculo": vehicle_type
+                    }
+                    
+                    if is_local:
+                        # Salvar mensagem localmente em vez de enviar para SQS
+                        local_messages.append(message)
+                        logger.info(f"Locally saved message for brand '{brand_name}'")
+                    else:
+                        # Enviar para SQS quando estiver no Lambda
+                        fipe_api.send_message_sqs(queue_url, message)
+                        logger.info(f"Message sent to SQS for brand '{brand_name}'")
+                    
+                    time.sleep(delay)
+            logger.info(f"Completed processing for vehicle type {vehicle_type}.")
             time.sleep(120)  # Delay extra entre tipos de veículos
         except Exception as e: 
-            print(f"Error processing vehicle type {vehicle_type}: {e}")
+            logger.error(f"Error processing vehicle type {vehicle_type}: {e}")
 
     # Se estiver rodando localmente e tiver mensagens, salva em arquivo
     if is_local and local_messages and local_output_file:
         try:
             with open(local_output_file, 'w', encoding='utf-8') as f:
                 json.dump(local_messages, f, ensure_ascii=False, indent=2)
-            print(f"Successfully saved {len(local_messages)} messages to {local_output_file}")
+            logger.info(f"Successfully saved {len(local_messages)} messages to {local_output_file}")
         except Exception as e:
-            print(f"Error saving local messages to file: {e}")
+            logger.error(f"Error saving local messages to file: {e}")
 
-    print("Processing completed for all vehicle types.")
+    logger.info("Processing completed for all vehicle types.")
     return {
         'statusCode': 200,
         'body': 'Processing completed successfully!',
