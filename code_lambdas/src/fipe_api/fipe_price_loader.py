@@ -68,7 +68,7 @@ def lambda_handler(event, context):
                 reference_month_name = message.get("mesReferenciaAno", "Desconhecido")
     
                 retries = 5
-                delay = 10
+                delay = 2
                 success = False
                 while retries > 0 and not success:
                     try:

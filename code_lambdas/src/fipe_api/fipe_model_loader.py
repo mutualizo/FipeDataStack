@@ -78,7 +78,7 @@ def lambda_handler(event, context):
                     
                     # Tentar obter os modelos com retry em caso de erro 429 (rate limit)
                     retries = 2
-                    delay = 5  # Delay inicial em segundos
+                    delay = 2  # Delay inicial em segundos
                     
                     while retries > 0:
                         try:
