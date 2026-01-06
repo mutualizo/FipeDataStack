@@ -68,6 +68,9 @@ def process_vehicle_types(is_local=False, local_output_file=None, period=None):
             }
         logger.info(f"FORCE_VEHICLE_TYPE definido. Processando apenas o tipo de veículo: {force_type}")
     
+    if force_model:
+        logger.info(f"FORCE_VEHICLE_MODEL definido. Processando apenas o modelo de veículo: {force_model}")
+    
     if not force_type or force_type == '0':
         vehicle_types = [3, 1, 2]  # 1: Car, 2: Motorcycle, 3: Truck
     
@@ -116,7 +119,7 @@ def process_vehicle_types(is_local=False, local_output_file=None, period=None):
                         # Enviar para SQS quando estiver no Lambda
                         fipe_api.send_message_sqs(queue_url, message)
                         logger.info(f"Message sent to SQS for brand '{brand_name}'")
-                    
+
                     time.sleep(delay)
             logger.info(f"Completed processing for vehicle type {vehicle_type}.")
             time.sleep(delay)  # Delay extra entre tipos de veículos
