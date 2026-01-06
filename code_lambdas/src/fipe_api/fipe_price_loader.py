@@ -68,7 +68,7 @@ def lambda_handler(event, context):
                 reference_month_name = message.get("mesReferenciaAno", "Desconhecido")
     
                 retries = 5
-                delay = 2
+                delay = 0.5
                 success = False
                 while retries > 0 and not success:
                     try:
@@ -118,7 +118,7 @@ def lambda_handler(event, context):
                                         f"Message {message_id} data to be sent: {json.dumps(complete_data, indent=4, ensure_ascii=False)}"
                                     )
                                     batch.append(complete_data)
-                                time.sleep(1)
+                                time.sleep(delay)
                         success = True
                         break
     

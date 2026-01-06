@@ -88,6 +88,7 @@ class FipeAPI:
                             self.reference_month_name = table.get(
                                 "Mes", "Desconhecido"
                             ).strip()
+                self.logger.info(f"REFTABLE - Reference table code set to: {self.reference_table_code} - Month: {self.reference_month_name}")
                 return True
             else:
                 self.logger.warning("REFTABLE - No reference tables found.")

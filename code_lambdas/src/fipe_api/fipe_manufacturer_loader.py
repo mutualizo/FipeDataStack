@@ -55,7 +55,7 @@ def process_vehicle_types(is_local=False, local_output_file=None, period=None):
     
     if not is_local:
         process_table_reference(fipe_api, queue_url)
-        time.sleep(5)
+        time.sleep(1)  # Pequeno delay após processar a tabela de referência
     
     if force_type:
         vehicle_types = [int(force_type)]
@@ -71,7 +71,7 @@ def process_vehicle_types(is_local=False, local_output_file=None, period=None):
     if not force_type or force_type == '0':
         vehicle_types = [3, 1, 2]  # 1: Car, 2: Motorcycle, 3: Truck
     
-    delay = 5.0  # Delay aumentado para 5 segundos
+    delay = 0.5
 
     # Para armazenar mensagens localmente em vez de enviar para SQS
     local_messages = []
@@ -119,7 +119,7 @@ def process_vehicle_types(is_local=False, local_output_file=None, period=None):
                     
                     time.sleep(delay)
             logger.info(f"Completed processing for vehicle type {vehicle_type}.")
-            time.sleep(120)  # Delay extra entre tipos de veículos
+            time.sleep(delay)  # Delay extra entre tipos de veículos
         except Exception as e: 
             logger.error(f"Error processing vehicle type {vehicle_type}: {e}")
 

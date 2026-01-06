@@ -77,8 +77,8 @@ def lambda_handler(event, context):
                     logger.info(f"Consultando modelos para: {manufacturer_name} ({vehicle_type_name})")
                     
                     # Tentar obter os modelos com retry em caso de erro 429 (rate limit)
-                    retries = 2
-                    delay = 2  # Delay inicial em segundos
+                    retries = 4
+                    delay = 0.5  # Delay inicial em segundos
                     
                     while retries > 0:
                         try:
