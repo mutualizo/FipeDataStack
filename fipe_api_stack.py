@@ -88,12 +88,12 @@ class FipeApiStack(NestedStack):
                                      retention_period=Duration.days(14), 
                                      queue_name=f"fipe-manufacturer-dlq-{stage}")
         Tags.of(manufacturer_dlq).add("Stage", stage)
-        # model_dlq = sqs.Queue(self, 
-        #                       f"FipeModelDLQ-{stage}", 
-        #                       visibility_timeout=Duration.seconds(600), 
-        #                       retention_period=Duration.days(13), 
-        #                       queue_name=f"fipe-model-dlq-{stage}")
-        # Tags.of(model_dlq).add("Stage", stage)
+        model_dlq = sqs.Queue(self, 
+                              f"FipeModelDLQ-{stage}", 
+                              visibility_timeout=Duration.seconds(600), 
+                              retention_period=Duration.days(13), 
+                              queue_name=f"fipe-model-dlq-{stage}")
+        Tags.of(model_dlq).add("Stage", stage)
         price_dlq = sqs.Queue(self, 
                               f"FipePriceDLQ-{stage}", 
                               visibility_timeout=Duration.seconds(600), 
@@ -116,9 +116,9 @@ class FipeApiStack(NestedStack):
                                 visibility_timeout=Duration.seconds(1000), 
                                 retention_period=Duration.days(4), 
                                 queue_name=f"fipe-model-queue-{stage}", 
-                                # dead_letter_queue=sqs.DeadLetterQueue(
-                                #     max_receive_count=10, 
-                                #     queue=model_dlq)
+                                dead_letter_queue=sqs.DeadLetterQueue(
+                                    max_receive_count=10, 
+                                    queue=model_dlq)
                                 )
         Tags.of(model_queue).add("Stage", stage)
         print(f"Fila SQS para modelos criada: {model_queue.queue_name}")
@@ -284,12 +284,8 @@ class FipeApiStack(NestedStack):
             timeout=Duration.seconds(300),
             memory_size=256,
             description="FIPE - 05) Função para recuperar mensagens das DLQs e reenviá-las para as filas principais",
-            # environment={
-            #     "DLQ_URLS": f"{manufacturer_dlq.queue_url},{model_dlq.queue_url},{price_dlq.queue_url}",
-            #     "MAIN_QUEUE_URLS": f"{manufacturer_queue.queue_url},{model_queue.queue_url},{price_queue.queue_url}",
-            # },
             environment={
-                "DLQ_URLS": f"{manufacturer_dlq.queue_url},{price_dlq.queue_url}",
+                "DLQ_URLS": f"{manufacturer_dlq.queue_url},{model_dlq.queue_url},{price_dlq.queue_url}",
                 "MAIN_QUEUE_URLS": f"{manufacturer_queue.queue_url},{model_queue.queue_url},{price_queue.queue_url}",
             },
         )
@@ -303,7 +299,7 @@ class FipeApiStack(NestedStack):
         CfnOutput(self, f"ModelQueueUrl-{stage}", value=model_queue.queue_url, description=f"URL da fila SQS para modelos - {stage}")
         CfnOutput(self, f"PriceQueueUrl-{stage}", value=price_queue.queue_url, description=f"URL da fila SQS para preços - {stage}")
         CfnOutput(self, f"ManufacturerDLQUrl-{stage}", value=manufacturer_dlq.queue_url, description=f"URL da fila DLQ para fabricantes - {stage}")
-        # CfnOutput(self, f"ModelDLQUrl-{stage}", value=model_dlq.queue_url, description=f"URL da fila DLQ para modelos - {stage}")
+        CfnOutput(self, f"ModelDLQUrl-{stage}", value=model_dlq.queue_url, description=f"URL da fila DLQ para modelos - {stage}")
         CfnOutput(self, f"PriceDLQUrl-{stage}", value=price_dlq.queue_url, description=f"URL da fila DLQ para preços - {stage}")
         CfnOutput(self, f"FipeManufacturerLambda-{stage}", value=manufacturer_lambda.function_name, description=f"Nome da função Lambda para carregamento de fabricantes - {stage}")
         CfnOutput(self, f"MonthlyEventRuleArn-{stage}", value=monthly_rule.rule_arn, description=f"ARN da regra CloudWatch Events para execução mensal - {stage}")
