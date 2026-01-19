@@ -91,7 +91,7 @@ class FipeApiStack(NestedStack):
         model_dlq = sqs.Queue(self, 
                               f"FipeModelDLQ-{stage}", 
                               visibility_timeout=Duration.seconds(600), 
-                              retention_period=Duration.days(14), 
+                              retention_period=Duration.days(20), 
                               queue_name=f"fipe-model-dlq-{stage}")
         Tags.of(model_dlq).add("Stage", stage)
         price_dlq = sqs.Queue(self, 
