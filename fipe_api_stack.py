@@ -91,7 +91,7 @@ class FipeApiStack(NestedStack):
         model_dlq = sqs.Queue(self, 
                               f"FipeModelDLQ-{stage}", 
                               visibility_timeout=Duration.seconds(600), 
-                              retention_period=Duration.days(13), 
+                              retention_period=Duration.days(14), 
                               queue_name=f"fipe-model-dlq-{stage}")
         Tags.of(model_dlq).add("Stage", stage)
         price_dlq = sqs.Queue(self, 
@@ -198,10 +198,7 @@ class FipeApiStack(NestedStack):
             role=lambda_role,
             layers=[lambda_layer],
             description="FIPE - 02) Função para carregar modelos da API FIPE",
-            # #############################################################
-            # MODIFICAÇÃO APLICADA AQUI
-            # #############################################################
-            reserved_concurrent_executions=3
+            reserved_concurrent_executions=5
         )
         Tags.of(model_lambda).add("Stage", stage)
         Tags.of(model_lambda).add("Function", "FipeModelLoader")
@@ -223,7 +220,7 @@ class FipeApiStack(NestedStack):
             role=lambda_role,
             layers=[lambda_layer],
             description="FIPE - 03) Função para carregar preços da API FIPE",
-            reserved_concurrent_executions=5
+            reserved_concurrent_executions=10
         )
         Tags.of(price_lambda).add("Stage", stage)
         Tags.of(price_lambda).add("Function", "FipePriceLoader")
@@ -256,7 +253,7 @@ class FipeApiStack(NestedStack):
             role=db_lambda_role,
             layers=[lambda_layer],
             description="FIPE - 04) Função para ingerir dados da FIPE no banco de dados",
-            reserved_concurrent_executions=5
+            reserved_concurrent_executions=20
         )
         Tags.of(ingestor_lambda).add("Stage", stage)
         Tags.of(ingestor_lambda).add("Function", "FipeSomaIngestor")
