@@ -110,6 +110,10 @@ def insert_edit_model_value(conn, data):
             logger.info(f"INGESTOR-INSERT - Inserindo valor do modelo: {data['model']} {data['model_year_code']}")
             fipe_value_str = str(data['fipe_value']).replace("R$ ", "").replace(".", "").replace(",", ".")
             fipe_value = float(fipe_value_str) if fipe_value_str else 0
+            if fipe_value == 0:
+                logger.warning(f"INGESTOR-INSERT - Valor Fipe é zero ou inválido para: {data['model']} {data['model_year_code']}. Verifique os dados de entrada.")
+                data['active'] = False
+                
             cur.execute("SELECT id FROM public.fipe_vehicle_model_value WHERE model_id = %s AND fipe_code = %s AND manufacture_year = %s AND reference_month_code = %s AND fuel_type = %s", (int(data['model_id']), str(data['fipe_code']), str(data['model_year_code']), str(data['reference_month_code']), str(data['fuel_type'])))
             existing_value = cur.fetchone()
             if existing_value:
@@ -119,7 +123,7 @@ def insert_edit_model_value(conn, data):
             else:
                 logger.info(f"INGESTOR-INSERT - Inserindo novo valor para: {data['model']} {data['model_year_code']}")
                 cur.execute("INSERT INTO public.fipe_vehicle_model_value ( name, code, model_id, fipe_code, manufacturer_id, manufacture_year, reference_month, reference_month_code, reference_month_id, fipe_value, fuel_type, vehicle_type, active, create_date, create_uid, write_date, write_uid ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", 
-                            (f"{data['model']} {data['model_year_code']}", str(data['model_code']), int(data['model_id']), str(data['fipe_code']), int(data['manufacturer_id']), str(data['model_year_code']), str(data['reference_month']), str(data['reference_month_code']), int(data['reference_id']), fipe_value, str(data['fuel_type']), int(data['vehicle_type']), True, datetime.now(), 1, datetime.now(), 1))
+                            (f"{data['model']} {data['model_year_code']}", str(data['model_code']), int(data['model_id']), str(data['fipe_code']), int(data['manufacturer_id']), str(data['model_year_code']), str(data['reference_month']), str(data['reference_month_code']), int(data['reference_id']), fipe_value, str(data['fuel_type']), int(data['vehicle_type']), data.get('active',True), datetime.now(), 1, datetime.now(), 1))
             conn.commit()
             logger.info(f"INGESTOR-INSERT - Valor do modelo processado com sucesso: {data['model']} {data['model_year_code']}")
         except Exception as e:
@@ -169,11 +173,12 @@ def process_message(conn, record):
                 "fipe_code": message_body.get("fipe_code"),
                 "fuel_type": message_body.get("fuel_type"),
                 "vehicle_type": message_body.get("vehicle_type"),
+                "active": True
             }
             
             # Validação mais robusta
             required_keys = ['manufacturer', 'manufacturer_code', 'model', 'model_code', 'fipe_code', 'vehicle_type', 'reference_id']
-            if any(data.get(key) is None for key in required_keys):
+            if any(data.get(key) is None or data.get(key) is False for key in required_keys):
                 logger.error(f"INGESTOR - Dados obrigatórios ausentes na mensagem {message_id}. Dados recebidos: {data}")
                 return False
 
