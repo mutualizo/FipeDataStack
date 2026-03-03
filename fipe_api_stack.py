@@ -180,7 +180,7 @@ class FipeApiStack(NestedStack):
         Tags.of(manufacturer_lambda).add("Function", "FipeManufacturerLoader")
         print(f"Lambda FipeManufacturerLoader criada: {manufacturer_lambda.function_name}")
         
-        monthly_rule = events.Rule(self, f"FipeManufacturerMonthlyRule-{stage}", schedule=events.Schedule.cron(minute="0", hour="1", day="2", month="*", year="*"), description=f"Executa a lambda FipeManufacturerLoader no dia 1 de cada mês - {stage}")
+        monthly_rule = events.Rule(self, f"FipeManufacturerMonthlyRule-{stage}", schedule=events.Schedule.cron(minute="0", hour="1", day="4", month="*", year="*"), description=f"Executa a lambda FipeManufacturerLoader no dia 1 de cada mês - {stage}")
         monthly_rule.add_target(targets.LambdaFunction(manufacturer_lambda))
         manufacturer_lambda.add_permission(f"AllowEventBridgeInvoke-{stage}", principal=iam.ServicePrincipal("events.amazonaws.com"), source_arn=monthly_rule.rule_arn)
         print(f"Regra CloudWatch Events criada para execução mensal da Lambda FipeManufacturerLoader")
