@@ -7,12 +7,15 @@ import logging
 import random
 
 HDRS = {
-    "User-Agent": "Mozilla/5.0",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept": "application/json, text/javascript, */*; q=0.01",
     "Referer": "https://veiculos.fipe.org.br/",
     "Content-Type": "application/json; charset=UTF-8",
     "X-Requested-With": "XMLHttpRequest",
+    "Host": "veiculos.fipe.org.br",
+    "Origin": "http://veiculos.fipe.org.br",
 }
+
 
 def mes_ano_formatado(mes, ano):
     # Dicionário com os nomes dos meses em português
@@ -28,15 +31,16 @@ def mes_ano_formatado(mes, ano):
         9: "setembro",
         10: "outubro",
         11: "novembro",
-        12: "dezembro"
+        12: "dezembro",
     }
-    
+
     # Verificar se o mês está dentro do intervalo válido (1-12)
     if mes < 1 or mes > 12:
         raise ValueError("Mês deve estar entre 1 e 12")
-    
+
     # Retornar a string formatada
     return f"{meses[mes]}/{ano}"
+
 
 class FipeAPI:
     # Inicializando o cliente SQS e o logger como atributos de classe
@@ -44,14 +48,20 @@ class FipeAPI:
     session = requests.Session()
     session.headers.update(HDRS)
     logger = logging.getLogger(__name__)  # Definindo o nome do logger
-    reference_period = (0,0,)
+    reference_period = (
+        0,
+        0,
+    )
     reference_table = None
     reference_table_code = None
     reference_month_name = None
 
     def __init__(self, period=None):
-        if period== None:
-            period = (0,0,)
+        if period == None:
+            period = (
+                0,
+                0,
+            )
         self.logger.setLevel(logging.INFO)  # Definindo o nível de log
         self.url_base = os.getenv("URL_FIPE")
         self.logger.info(f"Fipe URL -> {self.url_base}")
@@ -59,9 +69,9 @@ class FipeAPI:
             raise ValueError("Variável de ambiente URL_FIPE nao definida")
         self.reference_period = period
         self.get_reference_table()
-    
+
     def _post(self, url, payload=None):
-        response = self.session.post( url, json=payload or {})
+        response = self.session.post(url, json=payload or {})
         response.raise_for_status()
         time.sleep(random.uniform(0.5, 1.0))  # throttle
         return response.json()
@@ -77,9 +87,9 @@ class FipeAPI:
             if self.reference_table:
                 if mes == 0 and ano == 0:
                     self.reference_table_code = self.reference_table[0].get("Codigo")
-                    self.reference_month_name = self.reference_table[0].get(
-                        "Mes", "Desconhecido"
-                    ).strip()
+                    self.reference_month_name = (
+                        self.reference_table[0].get("Mes", "Desconhecido").strip()
+                    )
                 else:
                     database = mes_ano_formatado(mes, ano)
                     for table in self.reference_table:
@@ -88,7 +98,9 @@ class FipeAPI:
                             self.reference_month_name = table.get(
                                 "Mes", "Desconhecido"
                             ).strip()
-                self.logger.info(f"REFTABLE - Reference table code set to: {self.reference_table_code} - Month: {self.reference_month_name}")
+                self.logger.info(
+                    f"REFTABLE - Reference table code set to: {self.reference_table_code} - Month: {self.reference_month_name}"
+                )
                 return True
             else:
                 self.logger.warning("REFTABLE - No reference tables found.")
