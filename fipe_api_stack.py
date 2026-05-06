@@ -30,8 +30,8 @@ class FipeApiStack(NestedStack):
         super().__init__(scope, construct_id, **kwargs)
 
         # ... (código inicial sem alterações) ...
-        Tags.of(self).add("Stage", stage)
-        Tags.of(self).add("Application", "FipeAPI")
+        Tags.of(self).add("stage", stage)
+        Tags.of(self).add("application", "FipeAPI")
         
         print(f"Iniciando criação do FipeApiStack para o estágio: {stage}")
         print(f"Usando endpoint do banco de dados (via proxy): {db_cluster_endpoint}")
@@ -42,7 +42,7 @@ class FipeApiStack(NestedStack):
             description=f"Security group for the FIPE API Lambda functions - {stage}",
             allow_all_outbound=True
         )
-        Tags.of(self.lambda_security_group).add("Stage", stage)
+        Tags.of(self.lambda_security_group).add("stage", stage)
         print(f"Grupo de segurança para as Lambdas criado: {self.lambda_security_group.security_group_id}")
         
         lambda_role = iam.Role(
@@ -69,8 +69,8 @@ class FipeApiStack(NestedStack):
             resources=[db_secret_arn]
         ))
         
-        Tags.of(lambda_role).add("Stage", stage)
-        Tags.of(db_lambda_role).add("Stage", stage)
+        Tags.of(lambda_role).add("stage", stage)
+        Tags.of(db_lambda_role).add("stage", stage)
         print(f"Roles para as Lambdas criadas")
 
         secret_name = db_secret_arn.split(':')[-1]
@@ -87,19 +87,19 @@ class FipeApiStack(NestedStack):
                                      visibility_timeout=Duration.seconds(600), 
                                      retention_period=Duration.days(14), 
                                      queue_name=f"fipe-manufacturer-dlq-{stage}")
-        Tags.of(manufacturer_dlq).add("Stage", stage)
+        Tags.of(manufacturer_dlq).add("stage", stage)
         model_dlq = sqs.Queue(self, 
                               f"FipeModelDLQ-{stage}", 
                               visibility_timeout=Duration.seconds(600), 
                               retention_period=Duration.days(14), 
                               queue_name=f"fipe-model-dlq-{stage}")
-        Tags.of(model_dlq).add("Stage", stage)
+        Tags.of(model_dlq).add("stage", stage)
         price_dlq = sqs.Queue(self, 
                               f"FipePriceDLQ-{stage}", 
                               visibility_timeout=Duration.seconds(600), 
                               retention_period=Duration.days(14), 
                               queue_name=f"fipe-price-dlq-{stage}")
-        Tags.of(price_dlq).add("Stage", stage)
+        Tags.of(price_dlq).add("stage", stage)
         
         manufacturer_queue = sqs.Queue(self, 
                                        f"FipeManufacturerQueue-{stage}", 
@@ -109,7 +109,7 @@ class FipeApiStack(NestedStack):
                                        dead_letter_queue=sqs.DeadLetterQueue(
                                            max_receive_count=10, 
                                            queue=manufacturer_dlq))
-        Tags.of(manufacturer_queue).add("Stage", stage)
+        Tags.of(manufacturer_queue).add("stage", stage)
         print(f"Fila SQS para fabricantes criada: {manufacturer_queue.queue_name}")
         model_queue = sqs.Queue(self, 
                                 f"FipeModelQueue-{stage}", 
@@ -120,7 +120,7 @@ class FipeApiStack(NestedStack):
                                     max_receive_count=10, 
                                     queue=model_dlq)
                                 )
-        Tags.of(model_queue).add("Stage", stage)
+        Tags.of(model_queue).add("stage", stage)
         print(f"Fila SQS para modelos criada: {model_queue.queue_name}")
         price_queue = sqs.Queue(self, 
                                 f"FipePriceQueue-{stage}", 
@@ -130,7 +130,7 @@ class FipeApiStack(NestedStack):
                                 dead_letter_queue=sqs.DeadLetterQueue(
                                     max_receive_count=10, 
                                     queue=price_dlq))
-        Tags.of(price_queue).add("Stage", stage)
+        Tags.of(price_queue).add("stage", stage)
         print(f"Fila SQS para preços criada: {price_queue.queue_name}")
         print("Filas DLQ configuradas para todas as filas SQS")
         
@@ -139,7 +139,7 @@ class FipeApiStack(NestedStack):
                                             code=lambda_.Code.from_asset("fipe_api_layer.zip"), 
                                             compatible_runtimes=[lambda_.Runtime.PYTHON_3_10], 
                                             description=f"Layer for FIPE API Lambda functions - {stage}")
-        Tags.of(lambda_layer).add("Stage", stage)
+        Tags.of(lambda_layer).add("stage", stage)
         print(f"Camada Lambda para FIPE API criada a partir do arquivo ZIP")
         
         common_env = {"STAGE": stage, "URL_FIPE": "http://veiculos.fipe.org.br/api/veiculos"}
@@ -176,8 +176,8 @@ class FipeApiStack(NestedStack):
             layers=[lambda_layer], 
             description="FIPE - 01) Função para carregar fabricantes da API FIPE"
         )
-        Tags.of(manufacturer_lambda).add("Stage", stage)
-        Tags.of(manufacturer_lambda).add("Function", "FipeManufacturerLoader")
+        Tags.of(manufacturer_lambda).add("stage", stage)
+        Tags.of(manufacturer_lambda).add("function", "FipeManufacturerLoader")
         print(f"Lambda FipeManufacturerLoader criada: {manufacturer_lambda.function_name}")
         
         monthly_rule = events.Rule(self, f"FipeManufacturerMonthlyRule-{stage}", schedule=events.Schedule.cron(minute="0", hour="1", day="4", month="*", year="*"), description=f"Executa a lambda FipeManufacturerLoader no dia 1 de cada mês - {stage}")
@@ -200,8 +200,8 @@ class FipeApiStack(NestedStack):
             description="FIPE - 02) Função para carregar modelos da API FIPE",
             reserved_concurrent_executions=5
         )
-        Tags.of(model_lambda).add("Stage", stage)
-        Tags.of(model_lambda).add("Function", "FipeModelLoader")
+        Tags.of(model_lambda).add("stage", stage)
+        Tags.of(model_lambda).add("function", "FipeModelLoader")
         print(f"Lambda FipeModelLoader criada com limite de concorrência: {model_lambda.function_name}")
         
         model_lambda.add_event_source(lambda_event_sources.SqsEventSource(manufacturer_queue, batch_size=10, max_batching_window=Duration.seconds(30), report_batch_item_failures=True))
@@ -222,8 +222,8 @@ class FipeApiStack(NestedStack):
             description="FIPE - 03) Função para carregar preços da API FIPE",
             reserved_concurrent_executions=10
         )
-        Tags.of(price_lambda).add("Stage", stage)
-        Tags.of(price_lambda).add("Function", "FipePriceLoader")
+        Tags.of(price_lambda).add("stage", stage)
+        Tags.of(price_lambda).add("function", "FipePriceLoader")
         print(f"Lambda FipePriceLoader criada com limite de concorrência: {price_lambda.function_name}")
         
         price_lambda.add_event_source(
@@ -255,8 +255,8 @@ class FipeApiStack(NestedStack):
             description="FIPE - 04) Função para ingerir dados da FIPE no banco de dados",
             reserved_concurrent_executions=20
         )
-        Tags.of(ingestor_lambda).add("Stage", stage)
-        Tags.of(ingestor_lambda).add("Function", "FipeSomaIngestor")
+        Tags.of(ingestor_lambda).add("stage", stage)
+        Tags.of(ingestor_lambda).add("function", "FipeSomaIngestor")
         print(f"Lambda FipeSomaIngestor criada com limite de concorrência: {ingestor_lambda.function_name}")
         
         ingestor_lambda.add_event_source(
@@ -286,8 +286,8 @@ class FipeApiStack(NestedStack):
                 "MAIN_QUEUE_URLS": f"{manufacturer_queue.queue_url},{model_queue.queue_url},{price_queue.queue_url}",
             },
         )
-        Tags.of(redrive_lambda).add("Stage", stage)
-        Tags.of(redrive_lambda).add("Function", "RedriveDLQLambda")
+        Tags.of(redrive_lambda).add("stage", stage)
+        Tags.of(redrive_lambda).add("function", "RedriveDLQLambda")
         print(f"Lambda RedriveDLQLambda criada: {redrive_lambda.function_name}")
 
         
