@@ -84,7 +84,7 @@ class FipeDataStack(Stack):
         db_cluster = rds.DatabaseCluster(
             self, f"FipeDataCluster-{stage}",
             engine=rds.DatabaseClusterEngine.aurora_postgres(
-                version=rds.AuroraPostgresEngineVersion.of("15.5", "15")
+                version=rds.AuroraPostgresEngineVersion.of("15.15", "15")
             ),
             credentials=rds.Credentials.from_secret(db_credentials),
             serverless_v2_min_capacity=0,
