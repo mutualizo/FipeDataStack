@@ -1,0 +1,1048 @@
+{
+  "checklists": [
+    {
+      "id": "melhoria-1-python-312",
+      "title": "Melhoria 1: Migração Python 3.10 → 3.12",
+      "description": "Atualizar runtime Python de 3.10 para 3.12 em todas as Lambdas",
+      "estimatedHours": 8,
+      "priority": "HIGH",
+      "items": [
+        {
+          "id": "m1-prep-0",
+          "title": "PASSO 0: Preparação - Desativar auto-deploy",
+          "description": "Desativar push triggers em GitHub Actions antes de começar migração",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Comentar push trigger em deploy-stage.yml",
+              "checked": false
+            },
+            {
+              "title": "Comentar push trigger em deploy-production.yml",
+              "checked": false
+            },
+            {
+              "title": "Criar backup de .github/workflows/",
+              "checked": false
+            },
+            {
+              "title": "Confirmar workflows não disparam automaticamente",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m1-etapa-1",
+          "title": "Etapa 1: Atualizar Python Version em Workflows",
+          "description": "Alterar python-version de 3.10 para 3.12 em ambos workflows",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Editar deploy-stage.yml - python-version: 3.12",
+              "checked": false
+            },
+            {
+              "title": "Editar deploy-production.yml - python-version: 3.12",
+              "checked": false
+            },
+            {
+              "title": "Commit: 'update: python version 3.10 -> 3.12 em workflows'",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m1-etapa-2",
+          "title": "Etapa 2: Atualizar fipe_api_stack.py - Lambda Runtime",
+          "description": "Alterar runtime de Python 3.10 para 3.12 em fipe_api_stack.py",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Localizar lambda_.Runtime.PYTHON_3_10",
+              "checked": false
+            },
+            {
+              "title": "Alterar para lambda_.Runtime.PYTHON_3_12",
+              "checked": false
+            },
+            {
+              "title": "Verificar todos os lambdas foram atualizados",
+              "checked": false
+            },
+            {
+              "title": "Commit: 'update: lambda runtime 3.10 -> 3.12 em fipe_api_stack.py'",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m1-etapa-3",
+          "title": "Etapa 3: Atualizar requirements.txt",
+          "description": "Atualizar dependências para compatibilidade com Python 3.12",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Atualizar boto3 para 1.28.0+",
+              "checked": false
+            },
+            {
+              "title": "Atualizar aws-cdk-lib para 2.252.0+",
+              "checked": false
+            },
+            {
+              "title": "Atualizar constructs para 10.x",
+              "checked": false
+            },
+            {
+              "title": "Atualizar psycopg2-binary para 2.9.6+",
+              "checked": false
+            },
+            {
+              "title": "Atualizar aws-lambda-powertools",
+              "checked": false
+            },
+            {
+              "title": "pip install -r requirements.txt",
+              "checked": false
+            },
+            {
+              "title": "Commit: 'update: requirements.txt para Python 3.12'",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m1-etapa-4",
+          "title": "Etapa 4: Atualizar fipe_api_layer/requirements.txt",
+          "description": "Atualizar dependencies do Lambda layer",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Validar e atualizar fipe_api_layer/requirements.txt",
+              "checked": false
+            },
+            {
+              "title": "Executar: make prepare-layers",
+              "checked": false
+            },
+            {
+              "title": "Validar layer foi compilado com Python 3.12",
+              "checked": false
+            },
+            {
+              "title": "Commit: 'update: lambda layer requirements para Python 3.12'",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m1-etapa-5",
+          "title": "Etapa 5: Testes Locais",
+          "description": "Validar testes passam localmente",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Executar: python -m pytest tests/",
+              "checked": false
+            },
+            {
+              "title": "Executar: ruff check .",
+              "checked": false
+            },
+            {
+              "title": "Executar: cdk diff (validar sintaxe)",
+              "checked": false
+            },
+            {
+              "title": "Validar: todos tests passam",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m1-etapa-6",
+          "title": "Etapa 6: Deploy STG",
+          "description": "Deploy em staging para validação",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Executar: make deploy-stg AWS_PROFILE=xxx VPC_ID=xxx ALLOWED_IP=xxx",
+              "checked": false
+            },
+            {
+              "title": "Validar: todos lambdas deployadas com runtime Python 3.12",
+              "checked": false
+            },
+            {
+              "title": "Validar: pipeline executa sem erros",
+              "checked": false
+            },
+            {
+              "title": "Testar: FipeManufacturerLoader manualmente",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m1-etapa-7",
+          "title": "Etapa 7: Deploy PRD",
+          "description": "Deploy em production após validação em STG",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Confirmar que STG está estável",
+              "checked": false
+            },
+            {
+              "title": "Executar: make deploy-prd AWS_PROFILE=xxx VPC_ID=xxx ALLOWED_IP=xxx",
+              "checked": false
+            },
+            {
+              "title": "Validar: todos lambdas deployados em PRD",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m1-final",
+          "title": "PASSO FINAL: Reativar auto-deploy",
+          "description": "Descomenta push triggers em workflows",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Descomenta push trigger em deploy-stage.yml",
+              "checked": false
+            },
+            {
+              "title": "Descomenta push trigger em deploy-production.yml",
+              "checked": false
+            },
+            {
+              "title": "Commit: 'chore: reativar auto-deploy em workflows'",
+              "checked": false
+            },
+            {
+              "title": "Criar tag: git tag -a v1.0.0-python-312",
+              "checked": false
+            },
+            {
+              "title": "Push tag e fazer merge em main",
+              "checked": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "melhoria-2-multi-region",
+      "title": "Melhoria 2: Arquitetura Multi-Região com Lambdas em sa-east-1",
+      "description": "Executar Lambdas em sa-east-1 (Brazil) para bypass IP blocking da FIPE",
+      "estimatedHours": 20,
+      "priority": "HIGH",
+      "items": [
+        {
+          "id": "m2-prep",
+          "title": "Preparação: Validar VPC e Peering",
+          "description": "Configurar infraestrutura base para multi-região",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Verificar VPC default em sa-east-1 (Brazil)",
+              "checked": false
+            },
+            {
+              "title": "Confirmar subnets em sa-east-1",
+              "checked": false
+            },
+            {
+              "title": "Verificar RDS em us-east-2 (STG) e us-east-1 (PRD)",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m2-stg-etapa-1",
+          "title": "STG - Etapa 1: Criar SQS FIFO Queues em sa-east-1",
+          "description": "Criar filas FIFO obrigatórias para garantir ordenação",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Criar fipe-manufacturer-queue-stg.fifo em sa-east-1",
+              "checked": false
+            },
+            {
+              "title": "Criar fipe-model-queue-stg.fifo em sa-east-1",
+              "checked": false
+            },
+            {
+              "title": "Criar fipe-price-queue-stg.fifo em sa-east-1",
+              "checked": false
+            },
+            {
+              "title": "Criar DLQs correspondentes",
+              "checked": false
+            },
+            {
+              "title": "Validar queues criadas via AWS console",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m2-stg-etapa-2",
+          "title": "STG - Etapa 2: Deploy Lambdas SEM VPC em sa-east-1",
+          "description": "FipeManufacturerLoader, FipeModelLoader, FipePriceLoader (sem VPC)",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Modificar CDK para criar lambdas em sa-east-1",
+              "checked": false
+            },
+            {
+              "title": "FipeManufacturerLoader sem VPC (acessa FIPE API)",
+              "checked": false
+            },
+            {
+              "title": "FipeModelLoader sem VPC (acessa FIPE API)",
+              "checked": false
+            },
+            {
+              "title": "FipePriceLoader sem VPC (acessa FIPE API)",
+              "checked": false
+            },
+            {
+              "title": "Deploy em sa-east-1: make deploy-stg",
+              "checked": false
+            },
+            {
+              "title": "Testar FipeManufacturerLoader manualmente",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m2-stg-etapa-3",
+          "title": "STG - Etapa 3: Configurar VPC Peering",
+          "description": "Peering entre sa-east-1 e us-east-2",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Criar VPC Peering Connection sa-east-1 ↔ us-east-2",
+              "checked": false
+            },
+            {
+              "title": "Aceitar peering request",
+              "checked": false
+            },
+            {
+              "title": "Atualizar route tables sa-east-1 default VPC",
+              "checked": false
+            },
+            {
+              "title": "Atualizar route tables us-east-2 RDS VPC",
+              "checked": false
+            },
+            {
+              "title": "Atualizar RDS Security Group para permitir sa-east-1",
+              "checked": false
+            },
+            {
+              "title": "Testar conectividade: sa-east-1 → us-east-2 RDS",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m2-stg-etapa-4",
+          "title": "STG - Etapa 4: Deploy FipeSomaIngestor COM VPC",
+          "description": "Lambda com VPC em sa-east-1 para acessar RDS",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Criar FipeSomaIngestor com VPC sa-east-1",
+              "checked": false
+            },
+            {
+              "title": "Configurar ENI security group",
+              "checked": false
+            },
+            {
+              "title": "Deploy Lambda em sa-east-1",
+              "checked": false
+            },
+            {
+              "title": "Testar conexão RDS via peering",
+              "checked": false
+            },
+            {
+              "title": "Validar latência (~100-200ms esperado)",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m2-stg-etapa-5",
+          "title": "STG - Etapa 5: End-to-End Validation STG",
+          "description": "Testar pipeline completo em multi-region",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Invocar FipeManufacturerLoader manualmente",
+              "checked": false
+            },
+            {
+              "title": "Validar: mensagens fluem manufacturer → model → price queues",
+              "checked": false
+            },
+            {
+              "title": "Validar: FipeSomaIngestor processa e insere em RDS",
+              "checked": false
+            },
+            {
+              "title": "Validar: dados aparecem em RDS us-east-2",
+              "checked": false
+            },
+            {
+              "title": "Mediar latência end-to-end",
+              "checked": false
+            },
+            {
+              "title": "Commit: 'deploy: multi-region architecture em STG'",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m2-prd-etapa-1",
+          "title": "PRD - Etapa 1: Criar SQS FIFO Queues em sa-east-1",
+          "description": "Repetir para production",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Criar filas FIFO em sa-east-1 para PRD",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m2-prd-etapa-2",
+          "title": "PRD - Etapa 2: Deploy Lambdas em sa-east-1 (PRD)",
+          "description": "SEM VPC: Manufacturer, Model, Price loaders",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Deploy em sa-east-1 production",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m2-prd-etapa-3",
+          "title": "PRD - Etapa 3: VPC Peering sa-east-1 ↔ us-east-1",
+          "description": "Peering com us-east-1 para PRD RDS",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Criar peering sa-east-1 ↔ us-east-1",
+              "checked": false
+            },
+            {
+              "title": "Atualizar route tables",
+              "checked": false
+            },
+            {
+              "title": "Atualizar RDS security groups",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m2-prd-etapa-4",
+          "title": "PRD - Etapa 4: Deploy FipeSomaIngestor COM VPC (PRD)",
+          "description": "Lambda com VPC acessando RDS em us-east-1",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Deploy FipeSomaIngestor com VPC",
+              "checked": false
+            },
+            {
+              "title": "Testar RDS connectivity",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m2-prd-etapa-5",
+          "title": "PRD - Etapa 5: End-to-End Validation PRD",
+          "description": "Teste completo de pipeline em production",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Invocar FipeManufacturerLoader em PRD",
+              "checked": false
+            },
+            {
+              "title": "Validar fluxo completo de dados",
+              "checked": false
+            },
+            {
+              "title": "Validar dados em RDS PRD",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m2-cleanup",
+          "title": "Cleanup: Decommissionar Infraestrutura Antiga",
+          "description": "Após 1-2 semanas estável em PRD",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Desabilitar EventBridge rule em us-east-1 (old)",
+              "checked": false
+            },
+            {
+              "title": "Deletar SQS queues antigas",
+              "checked": false
+            },
+            {
+              "title": "Deletar Lambdas antigas",
+              "checked": false
+            },
+            {
+              "title": "Deletar VPC em us-east-1 (se apenas para FIPE)",
+              "checked": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "melhoria-3-observability",
+      "title": "Melhoria 3: Observabilidade e Resiliência",
+      "description": "CloudWatch Alarms, SNS notificações, DLQ reprocessamento inteligente",
+      "estimatedHours": 10,
+      "priority": "MEDIUM",
+      "items": [
+        {
+          "id": "m3-prep",
+          "title": "Preparação: Validar Email e Slack",
+          "description": "Configurar canais de notificação",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Verificar email SNS: alexandre.defendi@mutualizo.com",
+              "checked": false
+            },
+            {
+              "title": "Criar Slack webhook para notificações",
+              "checked": false
+            },
+            {
+              "title": "Testar webhook Slack com curl",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m3-etapa-1",
+          "title": "Etapa 1: CloudWatch Alarms para DLQs",
+          "description": "Criar alarmes para FipeManufacturer (CRÍTICO), Model/Price/Soma (WARNING)",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Adicionar imports CloudWatch em fipe_api_stack.py",
+              "checked": false
+            },
+            {
+              "title": "Criar SNS Topic fipe-alerts-critical-{stage}",
+              "checked": false
+            },
+            {
+              "title": "Criar SNS Topic fipe-alerts-warning-{stage}",
+              "checked": false
+            },
+            {
+              "title": "Alarme FipeManufacturerDLQ: threshold=1 (CRÍTICO)",
+              "checked": false
+            },
+            {
+              "title": "Alarme FipeModelDLQ: threshold=5 (WARNING)",
+              "checked": false
+            },
+            {
+              "title": "Alarme FipePriceDLQ: threshold=5 (WARNING)",
+              "checked": false
+            },
+            {
+              "title": "Alarme FipeSomaDLQ: threshold=5 (WARNING)",
+              "checked": false
+            },
+            {
+              "title": "Adicionar Email subscriptions aos SNS Topics",
+              "checked": false
+            },
+            {
+              "title": "Commit: 'add: CloudWatch Alarms para DLQs'",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m3-etapa-2",
+          "title": "Etapa 2: Lambda SNSToSlack",
+          "description": "Converter notificações SNS para formato Slack",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Criar code_lambdas/src/fipe_api/sns_to_slack.py",
+              "checked": false
+            },
+            {
+              "title": "Configurar Lambda em CDK",
+              "checked": false
+            },
+            {
+              "title": "Adicionar subscriptions: LambdaSubscription para ambos SNS Topics",
+              "checked": false
+            },
+            {
+              "title": "Commit: 'add: Lambda SNSToSlack para Slack notifications'",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m3-etapa-3",
+          "title": "Etapa 3: Lambda RedriveDLQLambda-Scheduled",
+          "description": "Reprocessar DLQs a cada hora com health check FIPE",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Criar code_lambdas/src/fipe_api/fipe_redrive_scheduled.py",
+              "checked": false
+            },
+            {
+              "title": "Implementar check_fipe_health() com timeout 5s",
+              "checked": false
+            },
+            {
+              "title": "Implementar redrive_dlq_to_main_queue()",
+              "checked": false
+            },
+            {
+              "title": "Configurar Lambda em CDK",
+              "checked": false
+            },
+            {
+              "title": "Adicionar IAM permissions para SQS",
+              "checked": false
+            },
+            {
+              "title": "Criar EventBridge Rule: cron a cada hora (minute='0', hour='*')",
+              "checked": false
+            },
+            {
+              "title": "Adicionar Lambda permission para EventBridge",
+              "checked": false
+            },
+            {
+              "title": "Commit: 'add: Lambda RedriveDLQLambda-Scheduled + EventBridge'",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m3-deploy-stg",
+          "title": "Deploy em STG",
+          "description": "Deploy de Observability em Staging",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Executar: make prepare-layers",
+              "checked": false
+            },
+            {
+              "title": "Executar: make deploy-stg AWS_PROFILE=xxx VPC_ID=xxx ALLOWED_IP=xxx",
+              "checked": false
+            },
+            {
+              "title": "Validar: Alarms criados",
+              "checked": false
+            },
+            {
+              "title": "Validar: SNS Topics criados",
+              "checked": false
+            },
+            {
+              "title": "Validar: Lambdas deployadas",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m3-testes-stg",
+          "title": "Testes em STG",
+          "description": "Validação completa de alarmes e notificações",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Teste: Colocar 1 msg DLQ FipeManufacturer → validar Email + Slack",
+              "checked": false
+            },
+            {
+              "title": "Teste: Colocar 5 msgs DLQ FipeModel → validar Email + Slack",
+              "checked": false
+            },
+            {
+              "title": "Teste: Invocar RedriveDLQLambda com FIPE OK → messages_redriven > 0",
+              "checked": false
+            },
+            {
+              "title": "Teste: Invocar RedriveDLQLambda com FIPE DOWN → status=FIPE_UNAVAILABLE",
+              "checked": false
+            },
+            {
+              "title": "Teste: Aguardar próxima hora → validar execução automática do cron",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m3-deploy-prd",
+          "title": "Deploy em PRD",
+          "description": "Repetir deployment em Production",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Executar: make deploy-prd AWS_PROFILE=xxx VPC_ID=xxx ALLOWED_IP=xxx",
+              "checked": false
+            },
+            {
+              "title": "Repetir testes em PRD",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m3-final",
+          "title": "Final: Merge e Release",
+          "description": "Finalizar implementação",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Criar PR com 4 commits",
+              "checked": false
+            },
+            {
+              "title": "Merge em main",
+              "checked": false
+            },
+            {
+              "title": "Criar git tag: v3.0.0-observability",
+              "checked": false
+            },
+            {
+              "title": "Push tag e notificar team",
+              "checked": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "melhoria-4-webhooks",
+      "title": "Melhoria 4: Webhooks para Notificação de Dados",
+      "description": "Sistema de webhooks com retry inteligente e Parameter Store config",
+      "estimatedHours": 6.5,
+      "priority": "MEDIUM",
+      "items": [
+        {
+          "id": "m4-prep",
+          "title": "Preparação: Validar Webhook.site",
+          "description": "Configurar endpoint de teste para webhooks",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Acessar https://webhook.site",
+              "checked": false
+            },
+            {
+              "title": "Gerar URL única para testes",
+              "checked": false
+            },
+            {
+              "title": "Confirmar recebimento de POSTs",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m4-etapa-1",
+          "title": "Etapa 1: Modificar FipeSomaIngestor",
+          "description": "Adicionar validação RDS e webhook queue",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Adicionar import datetime",
+              "checked": false
+            },
+            {
+              "title": "Implementar validate_records_in_rds()",
+              "checked": false
+            },
+            {
+              "title": "Processar END_OF_RECORDS: validar + colocar em webhook queue",
+              "checked": false
+            },
+            {
+              "title": "Adicionar env var: WEBHOOK_QUEUE_URL",
+              "checked": false
+            },
+            {
+              "title": "Commit: 'modify: FipeSomaIngestor - validação e webhook queue'",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m4-etapa-2",
+          "title": "Etapa 2: Criar SQS FIFO Queues para Webhooks",
+          "description": "Main queue + DLQ, com CloudWatch Alarm",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Criar webhook_dlq (FIFO, 14 dias retention)",
+              "checked": false
+            },
+            {
+              "title": "Criar webhook_queue (FIFO, max_receive_count=5)",
+              "checked": false
+            },
+            {
+              "title": "Criar CloudWatch Alarm para webhook DLQ",
+              "checked": false
+            },
+            {
+              "title": "Adicionar Email subscription ao Alarm",
+              "checked": false
+            },
+            {
+              "title": "Exportar Queue URLs como outputs",
+              "checked": false
+            },
+            {
+              "title": "Adicionar SQS permission ao FipeSomaIngestor",
+              "checked": false
+            },
+            {
+              "title": "Commit: 'add: SQS FIFO webhook queues + DLQ'",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m4-etapa-3",
+          "title": "Etapa 3: Criar Lambda FipeSomaNotifier",
+          "description": "Disparar webhooks com retry exponencial backoff",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Criar code_lambdas/src/fipe_api/fipe_soma_notifier.py",
+              "checked": false
+            },
+            {
+              "title": "Implementar call_webhook() com retry: 5s, 10s, 20s, 40s, 80s",
+              "checked": false
+            },
+            {
+              "title": "Implementar emit_metric() para CloudWatch",
+              "checked": false
+            },
+            {
+              "title": "Configurar Lambda em CDK",
+              "checked": false
+            },
+            {
+              "title": "Adicionar Event Source: SQS FIFO (batch_size=1)",
+              "checked": false
+            },
+            {
+              "title": "Adicionar IAM permissions: ssm:GetParameter, cloudwatch:PutMetricData",
+              "checked": false
+            },
+            {
+              "title": "Commit: 'add: Lambda FipeSomaNotifier'",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m4-etapa-4",
+          "title": "Etapa 4: Configurar Parameter Store",
+          "description": "Template de webhooks em Parameter Store",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Criar Parameter: /fipe/webhooks/stg com formato JSON",
+              "checked": false
+            },
+            {
+              "title": "Incluir webhook de teste (webhook.site)",
+              "checked": false
+            },
+            {
+              "title": "Criar docs/WEBHOOK-CONFIG.md com instruções",
+              "checked": false
+            },
+            {
+              "title": "Commit: 'add: Parameter Store webhook configuration'",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m4-deploy-stg",
+          "title": "Deploy em STG",
+          "description": "Deploy de webhooks em Staging",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Executar: make prepare-layers",
+              "checked": false
+            },
+            {
+              "title": "Executar: make deploy-stg AWS_PROFILE=xxx VPC_ID=xxx ALLOWED_IP=xxx",
+              "checked": false
+            },
+            {
+              "title": "Validar: Lambda FipeSomaNotifier deployada",
+              "checked": false
+            },
+            {
+              "title": "Validar: SQS queues criadas",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m4-testes-stg",
+          "title": "Testes em STG",
+          "description": "Validação de webhooks, retry, e métricas",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Teste: Registrar webhook em webhook.site",
+              "checked": false
+            },
+            {
+              "title": "Teste: Simular END_OF_RECORDS → validar webhook disparado",
+              "checked": false
+            },
+            {
+              "title": "Teste: Verificar payload em webhook.site",
+              "checked": false
+            },
+            {
+              "title": "Teste: Validar métrica webhook_success_count incrementa",
+              "checked": false
+            },
+            {
+              "title": "Teste: Configurar webhook inválido → aguardar 5 retries",
+              "checked": false
+            },
+            {
+              "title": "Teste: Validar mensagem em DLQ após falhas",
+              "checked": false
+            },
+            {
+              "title": "Teste: Validar métrica webhook_failure_count incrementa",
+              "checked": false
+            },
+            {
+              "title": "Teste: Validar Alarm dispara quando DLQ tem msgs",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m4-deploy-prd",
+          "title": "Deploy em PRD",
+          "description": "Deploy de webhooks em Production",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Executar: make deploy-prd AWS_PROFILE=xxx VPC_ID=xxx ALLOWED_IP=xxx",
+              "checked": false
+            },
+            {
+              "title": "Repetir testes em PRD",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m4-integracao",
+          "title": "Integração com Consumidores",
+          "description": "Documentar e comunicar para aplicações",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Criar docs/WEBHOOK-INTEGRATION.md com exemplos",
+              "checked": false
+            },
+            {
+              "title": "Incluir exemplo Flask/FastAPI",
+              "checked": false
+            },
+            {
+              "title": "Documentar header X-API-Key",
+              "checked": false
+            },
+            {
+              "title": "Documentar retry behavior",
+              "checked": false
+            },
+            {
+              "title": "Enviar email para teams consumidoras",
+              "checked": false
+            }
+          ]
+        },
+        {
+          "id": "m4-final",
+          "title": "Final: Merge e Release",
+          "description": "Finalizar implementação",
+          "checked": false,
+          "subtasks": [
+            {
+              "title": "Criar PR com 4 commits",
+              "checked": false
+            },
+            {
+              "title": "Merge em main",
+              "checked": false
+            },
+            {
+              "title": "Criar git tag: v4.0.0-webhooks",
+              "checked": false
+            },
+            {
+              "title": "Push tag e notificar team",
+              "checked": false
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "created": "2026-05-15",
+    "author": "Claude Code",
+    "totalEstimatedHours": 44.5,
+    "priority": "HIGH",
+    "description": "Checklist das 4 melhorias para FipeDataStack2: Python 3.12 Migration, Multi-Region Lambdas, Observability+Resilience, Webhooks",
+    "instructions": "Importar este JSON no Jira app 'Checklist for Jira Cloud'. Cada checklist pode ser importado como Jira Sub-task ou Custom Field tipo Checklist."
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "aws-cdk-development": {
+      "source": "zxkane/aws-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/aws-cdk/skills/aws-cdk-development/SKILL.md",
+      "computedHash": "bdb896d637c43cd0065b7eadbce835e07273dee9f5fde2bf9b9f34526f2e284f"
+    },
+    "brainstorming": {
+      "source": "obra/superpowers",
+      "sourceType": "github",
+      "skillPath": "skills/brainstorming/SKILL.md",
+      "computedHash": "8df9b47092524833138b58682d03f2e153a242e550d1693657afdbee0cc9cdb0"
+    }
+  }
+}
