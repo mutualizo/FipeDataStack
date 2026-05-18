@@ -137,7 +137,7 @@ class FipeApiStack(NestedStack):
         lambda_layer = lambda_.LayerVersion(self, 
                                             f"FipeApiLayer-{stage}", 
                                             code=lambda_.Code.from_asset("fipe_api_layer.zip"), 
-                                            compatible_runtimes=[lambda_.Runtime.PYTHON_3_10], 
+                                            compatible_runtimes=[lambda_.Runtime.PYTHON_3_12], 
                                             description=f"Layer for FIPE API Lambda functions - {stage}")
         Tags.of(lambda_layer).add("stage", stage)
         print(f"Camada Lambda para FIPE API criada a partir do arquivo ZIP")
@@ -164,7 +164,7 @@ class FipeApiStack(NestedStack):
             self, 
             f"FipeManufacturerLoader-{stage}", 
             function_name=f"FipeManufacturerLoader-{stage}", 
-            runtime=lambda_.Runtime.PYTHON_3_10, 
+            runtime=lambda_.Runtime.PYTHON_3_12, 
             code=lambda_.Code.from_asset(
                 "code_lambdas/src/fipe_api", 
                 exclude=["__pycache__", "*.pyc"]), 
@@ -189,7 +189,7 @@ class FipeApiStack(NestedStack):
         model_lambda = lambda_.Function(
             self, f"FipeModelLoader-{stage}",
             function_name=f"FipeModelLoader-{stage}",
-            runtime=lambda_.Runtime.PYTHON_3_10,
+            runtime=lambda_.Runtime.PYTHON_3_12,
             code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]),
             handler="fipe_model_loader.lambda_handler",
             timeout=Duration.minutes(5),
@@ -211,7 +211,7 @@ class FipeApiStack(NestedStack):
         price_lambda = lambda_.Function(
             self, f"FipePriceLoader-{stage}",
             function_name=f"FipePriceLoader-{stage}",
-            runtime=lambda_.Runtime.PYTHON_3_10,
+            runtime=lambda_.Runtime.PYTHON_3_12,
             code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]),
             handler="fipe_price_loader.lambda_handler",
             timeout=Duration.minutes(5),
@@ -240,7 +240,7 @@ class FipeApiStack(NestedStack):
         ingestor_lambda = lambda_.Function(
             self, f"FipeSomaIngestor-{stage}",
             function_name=f"FipeSomaIngestor-{stage}",
-            runtime=lambda_.Runtime.PYTHON_3_10,
+            runtime=lambda_.Runtime.PYTHON_3_12,
             code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]),
             handler="fipe_soma_ingestor.lambda_handler",
             timeout=Duration.minutes(5),
@@ -274,7 +274,7 @@ class FipeApiStack(NestedStack):
             self,
             f"RedriveDLQLambda-{stage}",
             function_name=f"RedriveDLQLambda-{stage}",
-            runtime=lambda_.Runtime.PYTHON_3_10,
+            runtime=lambda_.Runtime.PYTHON_3_12,
             handler="fipe_redrive_flq.lambda_handler",
             code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]),
             role=lambda_role,
