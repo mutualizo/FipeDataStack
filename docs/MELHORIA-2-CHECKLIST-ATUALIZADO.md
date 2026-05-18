@@ -5,6 +5,11 @@
 **Tempo Estimado:** 16-20 horas de trabalho  
 **Abordagem:** Incremental (STG → PRD)
 
+⚠️ **NOTA IMPORTANTE:** O ambiente **DEV já existe em sa-east-1**. A migração será:
+- **STG:** us-east-2 → sa-east-1 (NEW)
+- **PRD:** us-east-1 → sa-east-1 (NEW)
+- **DEV:** já está em sa-east-1 (VALIDAR APÓS MIGRAÇÃO STG/PRD)
+
 ---
 
 ## FASE PREPARAÇÃO
@@ -477,6 +482,22 @@ Release: v1.2.0-multi-region
 ```
 
 - [ ] Team notificado
+
+---
+
+## VALIDAÇÃO DEV (sa-east-1)
+
+⚠️ **IMPORTANTE:** Após conclusão da migração STG e PRD, validar que o ambiente DEV continua funcionando em sa-east-1
+
+### Checklist de Validação DEV:
+
+- [ ] Verificar que Lambdas DEV ainda estão em sa-east-1
+- [ ] Invocar `FipeManufacturerLoader-dev` e validar logs
+- [ ] Validar que DEV não foi impactado pela migração STG/PRD
+- [ ] Confirmar que SQS queues DEV continuam funcionando
+- [ ] Validar RDS connection para us-east-2 (dev database)
+
+**Observação:** Se DEV precisar ser reconfigurado, adicionar etapas de migração DEV após a conclusão de STG/PRD
 
 ---
 
