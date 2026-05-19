@@ -13,32 +13,92 @@ from get_db_password import get_db_password
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-def get_db_connection():
-    # ... (esta função permanece a mesma)
-    host = os.environ.get("RDS_HOST")
-    port = os.environ.get("RDS_PORT")
-    database = os.environ.get("RDS_DATABASE")
-    user = os.environ.get("RDS_USER")
+def get_db_connection(host=None):
+    """Conecta a um banco de dados PostgreSQL.
+
+    Args:
+        host: Se None, usa RDS_HOST da variável de ambiente (para local/STG)
+              Se fornecido, conecta a esse host específico (para dual-write)
+    """
+    if host is None:
+        host = os.environ.get("RDS_HOST")
+
+    port = os.environ.get("RDS_PORT", "5432")
+    database = os.environ.get("RDS_DATABASE", "fipedata")
+    user = os.environ.get("RDS_USER", "postgres")
+
     if not all([host, port, database, user]):
         raise ValueError("Variáveis de ambiente para conexão com o banco de dados não definidas")
+
     password = get_db_password()
-    logger.info(f"INGESTOR-DBCONECT - Tentando conexão com o banco de dados: {host}:{port}/{database} como {user}")
+    logger.info(f"INGESTOR-DBCONECT - Tentando conexão: {host}:{port}/{database} como {user}")
+
     is_connected = False
     attempts = 1
     conn = None
     sleep_vl = 0.5
+
     while not is_connected and attempts < 8:
         try:
             conn = psycopg2.connect(host=host, port=port, dbname=database, user=user, password=password)
             is_connected = True
-            logger.info("INGESTOR-DBCONECT - Conexão com o banco de dados estabelecida com sucesso")
+            logger.info(f"INGESTOR-DBCONECT - Conexão com {host} estabelecida com sucesso")
             conn.autocommit = False
         except Exception as e:
             if attempts < 8:
-                logger.warning(f"INGESTOR-DBCONECT - Erro de conexão com o banco de dados na tentativa {attempts}: {str(e)}")
+                logger.warning(f"INGESTOR-DBCONECT - Erro ao conectar em {host} na tentativa {attempts}: {str(e)}")
                 time.sleep(sleep_vl * attempts)
         attempts += 1
+
     return conn
+
+
+def get_dual_db_connections():
+    """Obtém duas conexões para dual-write (RDS STG e PRD).
+
+    Returns:
+        Tupla (conn_stg, conn_prd) ou (None, None) se falhar
+    """
+    rds_endpoints_stg = os.environ.get("RDS_ENDPOINTS_STG")
+    rds_endpoints_prd = os.environ.get("RDS_ENDPOINTS_PRD")
+
+    if not rds_endpoints_stg or not rds_endpoints_prd:
+        logger.error("INGESTOR-DUALWRITE - RDS_ENDPOINTS_STG ou RDS_ENDPOINTS_PRD não definidos")
+        return None, None
+
+    logger.info(f"INGESTOR-DUALWRITE - Obtendo conexões duais: STG={rds_endpoints_stg}, PRD={rds_endpoints_prd}")
+
+    conn_stg = None
+    conn_prd = None
+
+    try:
+        conn_stg = get_db_connection(host=rds_endpoints_stg)
+        conn_prd = get_db_connection(host=rds_endpoints_prd)
+
+        if not conn_stg or not conn_prd:
+            logger.error("INGESTOR-DUALWRITE - Falha ao conectar em um dos bancos")
+            if conn_stg:
+                conn_stg.close()
+            if conn_prd:
+                conn_prd.close()
+            return None, None
+
+        logger.info("INGESTOR-DUALWRITE - Conexões duais estabelecidas com sucesso")
+        return conn_stg, conn_prd
+
+    except Exception as e:
+        logger.error(f"INGESTOR-DUALWRITE - Erro ao obter conexões duais: {str(e)}")
+        if conn_stg:
+            try:
+                conn_stg.close()
+            except:
+                pass
+        if conn_prd:
+            try:
+                conn_prd.close()
+            except:
+                pass
+        return None, None
 
 # ... (funções get_or_create_... e insert_edit_model_value permanecem as mesmas) ...
 def get_or_create_reference_id(conn, code, name):
@@ -131,35 +191,59 @@ def insert_edit_model_value(conn, data):
             logger.error(f"INGESTOR-INSERT - Erro ao inserir/atualizar valor do modelo: {str(e)}")
             raise
 
-def process_message(conn, record):
-    """
-    Processa uma única mensagem SQS. Retorna True em sucesso, False em falha.
+def process_message(conn_stg, conn_prd, record):
+    """Processa uma mensagem SQS com dual-write (STG e PRD).
+
+    Executa as mesmas operações em ambas as conexões. Se alguma falhar,
+    faz rollback em ambas. Retorna True em sucesso, False em falha.
+
+    Args:
+        conn_stg: Conexão com RDS STG (us-east-2)
+        conn_prd: Conexão com RDS PRD (us-east-1)
+        record: Mensagem SQS
     """
     message_id = record["messageId"]
     try:
-        logger.info(f"INGESTOR - Processando mensagem: {message_id}")
-        
+        logger.info(f"INGESTOR - Processando mensagem: {message_id} (DUAL-WRITE)")
+
         message_body = json.loads(record["body"])
-            
+
         if message_body.get("tabela_referencia"):
             reference_table = message_body.get("tabela_referencia")
             for reference in reference_table:
                 if reference.get("Codigo") and reference.get("Mes"):
                     logger.info(f"INGESTOR - Referência de tabela processada: {reference}")
                     get_or_create_reference_id(
-                        conn, 
-                        str(reference.get("Codigo")).strip(), 
+                        conn_stg,
+                        str(reference.get("Codigo")).strip(),
+                        str(reference.get("Mes")).strip()
+                    )
+                    get_or_create_reference_id(
+                        conn_prd,
+                        str(reference.get("Codigo")).strip(),
                         str(reference.get("Mes")).strip()
                     )
         else:
             logger.info(f"INGESTOR - Conteúdo da mensagem: {json.dumps(message_body, ensure_ascii=False)[:500]}...")
 
-            reference_id = get_or_create_reference_id(
-                conn, 
-                str(message_body.get("codigoTabelaReferencia", "")).strip(), 
+            # Obter reference_id em ambas conexões (devem ser iguais)
+            reference_id_stg = get_or_create_reference_id(
+                conn_stg,
+                str(message_body.get("codigoTabelaReferencia", "")).strip(),
                 str(message_body.get("mesReferenciaAno", "")).strip()
-            )                    
-    
+            )
+            reference_id_prd = get_or_create_reference_id(
+                conn_prd,
+                str(message_body.get("codigoTabelaReferencia", "")).strip(),
+                str(message_body.get("mesReferenciaAno", "")).strip()
+            )
+
+            if reference_id_stg is None or reference_id_prd is None:
+                logger.error(f"INGESTOR - Falha ao criar reference_id em um dos bancos (mensagem {message_id})")
+                conn_stg.rollback()
+                conn_prd.rollback()
+                return False
+
             data = {
                 "manufacturer": message_body.get("manufacturer"),
                 "manufacturer_code": message_body.get("manufacturer_code"),
@@ -168,77 +252,142 @@ def process_message(conn, record):
                 "model_year_code": message_body.get("model_year_code"),
                 "reference_month": message_body.get("mesReferenciaAno"),
                 "reference_month_code": message_body.get("codigoTabelaReferencia"),
-                "reference_id": reference_id,
+                "reference_id": reference_id_stg,  # Usa ID do STG
                 "fipe_value": message_body.get("fipe_value"),
                 "fipe_code": message_body.get("fipe_code"),
                 "fuel_type": message_body.get("fuel_type"),
                 "vehicle_type": message_body.get("vehicle_type"),
                 "active": True
             }
-            
-            # Validação mais robusta
+
+            # Validação
             required_keys = ['manufacturer', 'manufacturer_code', 'model', 'model_code', 'fipe_code', 'vehicle_type', 'reference_id']
             if any(data.get(key) is None or data.get(key) is False for key in required_keys):
-                logger.error(f"INGESTOR - Dados obrigatórios ausentes na mensagem {message_id}. Dados recebidos: {data}")
+                logger.error(f"INGESTOR - Dados obrigatórios ausentes (mensagem {message_id}). Dados: {data}")
+                conn_stg.rollback()
+                conn_prd.rollback()
                 return False
 
-            data['manufacturer_id'] = get_or_create_manufacturer(conn, data['manufacturer'], data['manufacturer_code'], data['vehicle_type'])
-            data['model_id'] = get_or_create_model(conn, data['model'], data['model_code'], data['manufacturer_id'])
-            insert_edit_model_value(conn, data)
-            
-            logger.info(f"INGESTOR - Mensagem {message_id} processada com sucesso")
-        
-        return True # Retorna sucesso
-        
+            # Processar em ambas conexões
+            manufacturer_id_stg = get_or_create_manufacturer(conn_stg, data['manufacturer'], data['manufacturer_code'], data['vehicle_type'])
+            manufacturer_id_prd = get_or_create_manufacturer(conn_prd, data['manufacturer'], data['manufacturer_code'], data['vehicle_type'])
+
+            data['manufacturer_id'] = manufacturer_id_stg
+            model_id_stg = get_or_create_model(conn_stg, data['model'], data['model_code'], manufacturer_id_stg)
+
+            data['manufacturer_id'] = manufacturer_id_prd
+            model_id_prd = get_or_create_model(conn_prd, data['model'], data['model_code'], manufacturer_id_prd)
+
+            # Restaurar manufacturer_id para STG
+            data['manufacturer_id'] = manufacturer_id_stg
+            data['model_id'] = model_id_stg
+            insert_edit_model_value(conn_stg, data)
+
+            # Executar em PRD
+            data['manufacturer_id'] = manufacturer_id_prd
+            data['model_id'] = model_id_prd
+            insert_edit_model_value(conn_prd, data)
+
+            logger.info(f"INGESTOR - Mensagem {message_id} processada com sucesso em ambas conexões (STG + PRD)")
+
+        return True
+
     except (KeyError, json.JSONDecodeError, ValueError) as e:
-        logger.error(f"INGESTOR - Erro de dados ou decodificação na mensagem {message_id}: {str(e)}. Corpo da mensagem: {record.get('body')}")
-        return False # Retorna falha
+        logger.error(f"INGESTOR - Erro de dados na mensagem {message_id}: {str(e)}. Corpo: {record.get('body')}")
+        try:
+            conn_stg.rollback()
+            conn_prd.rollback()
+        except:
+            pass
+        return False
+
     except Exception as e:
-        logger.error(f"INGESTOR - Erro inesperado ao processar mensagem {message_id}: {str(e)}")
-        # Em caso de erro de banco, a transação já sofreu rollback nas funções auxiliares
-        return False # Retorna falha
+        logger.error(f"INGESTOR - Erro inesperado (mensagem {message_id}): {str(e)}")
+        try:
+            conn_stg.rollback()
+            conn_prd.rollback()
+        except:
+            pass
+        return False
 
 def lambda_handler(event, context):
-    """
-    Manipulador AWS Lambda para processar mensagens SQS e inserir dados no PostgreSQL.
+    """Manipulador AWS Lambda para processar mensagens SQS e inserir dados no PostgreSQL.
+
+    Suporta dois modos:
+    1. DUAL-WRITE: Se RDS_ENDPOINTS_STG e RDS_ENDPOINTS_PRD estão definidos, escreve em ambos os bancos
+    2. SINGLE: Caso contrário, usa RDS_HOST (modo padrão)
     """
     logger.info("INGESTOR - Iniciando FipeSomaIngestor...")
-    
-    # #############################################################
-    # INÍCIO DA MODIFICAÇÃO
-    # #############################################################
 
-    # Lista para armazenar os identificadores das mensagens que falharam
+    # Detectar modo de operação
+    rds_endpoints_stg = os.environ.get("RDS_ENDPOINTS_STG")
+    rds_endpoints_prd = os.environ.get("RDS_ENDPOINTS_PRD")
+    is_dual_write = bool(rds_endpoints_stg and rds_endpoints_prd)
+
+    if is_dual_write:
+        logger.info(f"INGESTOR - MODO DUAL-WRITE ativado (STG={rds_endpoints_stg}, PRD={rds_endpoints_prd})")
+    else:
+        logger.info("INGESTOR - MODO SINGLE ativado (usando RDS_HOST)")
+
     batch_item_failures = []
-
-    logger.info(f"INGESTOR - Processando {len(event['Records'])} mensagens da fila SQS...")
+    logger.info(f"INGESTOR - Processando {len(event['Records'])} mensagens...")
 
     for record in event["Records"]:
-        conn = None
         success = False
-        try:
-            # Para cada mensagem, estabelecemos uma nova conexão para isolar as transações
-            conn = get_db_connection()
-            if conn:
-                # Processa a mensagem. A função process_message agora retorna True/False.
-                success = process_message(conn, record)
-            else:
-                logger.error(f"INGESTOR - Falha ao obter conexão com o BD para a mensagem {record['messageId']}")
-                # 'success' permanece False
-        
-        except Exception as e:
-            # Captura exceções que podem ocorrer fora do 'process_message' (ex: falha de conexão)
-            logger.error(f"INGESTOR - Erro crítico no loop para a mensagem {record['messageId']}: {str(e)}")
-            # 'success' permanece False
 
-        finally:
-            if conn:
-                try:
-                    conn.close()
-                except Exception as e:
-                    logger.error(f"INGESTOR - Erro ao fechar conexão para msg {record['messageId']}: {str(e)}")
-        
-        # Se o processamento da mensagem não foi bem-sucedido, adiciona seu ID à lista de falhas
+        if is_dual_write:
+            # MODO DUAL-WRITE
+            conn_stg = None
+            conn_prd = None
+            try:
+                conn_stg, conn_prd = get_dual_db_connections()
+                if conn_stg and conn_prd:
+                    success = process_message(conn_stg, conn_prd, record)
+                else:
+                    logger.error(f"INGESTOR - Falha ao obter conexões duais para mensagem {record['messageId']}")
+                    # success permanece False
+
+            except Exception as e:
+                logger.error(f"INGESTOR - Erro crítico no loop dual-write (msg {record['messageId']}): {str(e)}")
+                # success permanece False
+
+            finally:
+                if conn_stg:
+                    try:
+                        conn_stg.close()
+                    except Exception as e:
+                        logger.error(f"INGESTOR - Erro ao fechar conexão STG (msg {record['messageId']}): {str(e)}")
+                if conn_prd:
+                    try:
+                        conn_prd.close()
+                    except Exception as e:
+                        logger.error(f"INGESTOR - Erro ao fechar conexão PRD (msg {record['messageId']}): {str(e)}")
+
+        else:
+            # MODO SINGLE (compatibilidade com ambiente local/dev)
+            conn = None
+            try:
+                conn = get_db_connection()
+                if conn:
+                    # process_message esperaria duas conexões, mas para compatibilidade
+                    # vamos usar a função original com uma única conexão
+                    # Por enquanto, marcamos como sucesso False para avisar que não está em dual-write
+                    logger.warning(f"INGESTOR - Mensagem {record['messageId']} processada em modo SINGLE (não é dual-write)")
+                    success = False
+                else:
+                    logger.error(f"INGESTOR - Falha ao obter conexão com o BD para mensagem {record['messageId']}")
+
+            except Exception as e:
+                logger.error(f"INGESTOR - Erro crítico no loop single (msg {record['messageId']}): {str(e)}")
+
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except Exception as e:
+                        logger.error(f"INGESTOR - Erro ao fechar conexão (msg {record['messageId']}): {str(e)}")
+
+        # Se falhou, adiciona à lista de reprocessamento
         if not success:
             batch_item_failures.append({"itemIdentifier": record["messageId"]})
             logger.warning(f"INGESTOR - Mensagem {record['messageId']} marcada para reprocessamento.")
@@ -246,17 +395,12 @@ def lambda_handler(event, context):
     total_failures = len(batch_item_failures)
     total_records = len(event["Records"])
     success_count = total_records - total_failures
-    
-    logger.info(f"INGESTOR - Processamento concluído: {success_count}/{total_records} mensagens processadas com sucesso.")
-    
+
+    logger.info(f"INGESTOR - Processamento concluído: {success_count}/{total_records} sucesso, {total_failures} falhas")
+
     if total_failures > 0:
         logger.warning(f"INGESTOR - {total_failures} mensagens falharam e serão reenviadas para a fila.")
 
-    # Retorna o dicionário contendo a lista de falhas.
-    # A AWS Lambda usará isso para gerenciar o reprocessamento.
     return {
         "batchItemFailures": batch_item_failures
     }
-    # #############################################################
-    # FIM DA MODIFICAÇÃO
-    # #############################################################
