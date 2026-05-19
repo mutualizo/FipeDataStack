@@ -349,18 +349,7 @@
 
 ---
 
-### 2.5 Deletar Workflows Antigas
-
-- [ ] Deletar arquivos
-  ```bash
-  rm .github/workflows/deploy-development.yml
-  rm .github/workflows/deploy-stage.yml
-  rm .github/workflows/deploy-production.yml
-  ```
-
----
-
-### 2.6 Criar Novo Workflow
+### 2.5 Criar Novo Workflow (Deploy sa-east-1)
 
 - [ ] Criar `.github/workflows/deploy-sa-east-1.yml`
   ```yaml
@@ -368,37 +357,68 @@
   # Environment: production
   # AWS_PROFILE: mutualizo
   # AWS_REGION: sa-east-1
+  # Coexiste com workflows antigos até FASE 6
   ```
 
 - [ ] Commit
   ```bash
-  git commit -am "CI/CD: Replace 3 workflows with single deploy-sa-east-1.yml"
+  git commit -am "CI/CD: Add deploy-sa-east-1.yml workflow for consolidated stack"
   ```
 
 ---
 
-### 2.7 Atualizar GitHub Environments
+### 2.6 Configurar GitHub Environment Production
 
-- [ ] No GitHub Web UI: Settings → Environments
-  - [ ] Deletar environment `development`
-  - [ ] Deletar environment `stage`
-  - [ ] Manter `production` e atualizar:
+- [ ] No GitHub Web UI: Settings → Environments → production
+  - [ ] Adicionar/Atualizar Variables:
     ```
     STACK_STAGE = "unified"
     AWS_REGION = "sa-east-1"
     ```
+  - [ ] Manter Secrets existentes:
+    ```
+    AWS_ROLE_TO_ASSUME
+    VPC_ID
+    ALLOWED_IP
+    ```
+  - ⚠️ **NÃO DELETAR** environments `development` e `stage`
+  - ℹ️ Deletação será feita na FASE 6 após testes
 
 ---
 
-### 2.8 Checklist de Conclusão FASE 2
+### 2.7 Checklist de Conclusão FASE 2
 
-- [ ] ✅ app.py refatorado
+- [ ] ✅ app.py refatorado (stack única)
 - [ ] ✅ fipe_data_stack.py com condicional RDS
-- [ ] ✅ fipe_api_stack.py com stack única
-- [ ] ✅ fipe_soma_ingestor.py com dual-write
-- [ ] ✅ Workflows atualizados
-- [ ] ✅ GitHub Environments consolidados
-- [ ] ✅ Todos os commits realizados
+- [ ] ✅ fipe_api_stack.py com Lambdas/SQS sem sufixo
+- [ ] ✅ fipe_soma_ingestor.py com dual-write logic
+- [ ] ✅ Novo workflow deploy-sa-east-1.yml criado
+- [ ] ✅ GitHub Environment production atualizado
+- [ ] ✅ Workflows antigos mantidos (deletar em FASE 6)
+- [ ] ✅ Todos os 5 commits realizados
+
+---
+
+## ⚠️ IMPORTANTE - Segurança em FASE 2
+
+**O QUE NÃO FAZER (ainda):**
+- ❌ **NÃO DELETAR** `.github/workflows/deploy-development.yml`
+- ❌ **NÃO DELETAR** `.github/workflows/deploy-stage.yml`
+- ❌ **NÃO DELETAR** `.github/workflows/deploy-production.yml`
+- ❌ **NÃO DELETAR** GitHub Environment `development`
+- ❌ **NÃO DELETAR** GitHub Environment `stage`
+
+**POR QUÊ?**
+- Manter plano de rollback se FASE 4-5 falharem
+- Testar novo workflow sem quebrar os antigos
+- Se tudo der certo → FASE 6 deleta tudo
+
+**QUANDO DELETAR?**
+- Apenas na FASE 6, após:
+  - ✅ VPC Peering funcionando
+  - ✅ Deploy em sa-east-1 bem-sucedido
+  - ✅ Testes E2E passando
+  - ✅ Dual-write validado
 
 ---
 
@@ -666,7 +686,47 @@ cdk deploy FipeDataStack-sa-east-1 FipeApiStack-sa-east-1 \
 
 ---
 
-### 6.4 Fazer Commit Final
+### 6.4 Deletar Workflows Antigas (GitHub)
+
+- [ ] Deletar arquivos de workflow
+  ```bash
+  # Via git (local)
+  rm .github/workflows/deploy-development.yml
+  rm .github/workflows/deploy-stage.yml
+  rm .github/workflows/deploy-production.yml
+  
+  # Depois fazer commit
+  git add -A
+  git commit -m "CI/CD: Delete old deployment workflows (dev, stage, prd)"
+  git push origin multi-region-sa-east-1
+  ```
+  ✅ **Pré-requisito:** Confirmar que novo workflow (deploy-sa-east-1.yml) funcionou OK
+
+- [ ] Verificar GitHub Actions UI
+  - Va para: Actions → Workflows
+  - Confirmar que apenas `Deploy FipeDataStack - sa-east-1` aparece
+  - Outros workflows (deploy-development, deploy-stage, deploy-production) desaparecerão automaticamente
+
+---
+
+### 6.5 Deletar GitHub Environments Antigos
+
+- [ ] Via GitHub Web UI: Settings → Environments
+  - [ ] **Deletar** `development`
+  - [ ] **Deletar** `stage`
+  - [ ] **Manter** `production` (já configurado em FASE 2)
+
+**Passo a passo:**
+1. Ir para: https://github.com/seu-user/FipeDataStack2/settings/environments
+2. Clicar em `development` → Delete environment → Confirmar
+3. Clicar em `stage` → Delete environment → Confirmar
+4. Verificar que apenas `production` permanece
+
+✅ **Pré-requisito:** Confirmar que todos os testes passaram em production
+
+---
+
+### 6.6 Fazer Commit Final
 
 - [ ] Commit de limpeza
   ```bash
@@ -682,14 +742,30 @@ cdk deploy FipeDataStack-sa-east-1 FipeApiStack-sa-east-1 \
 
 ---
 
-### 6.5 Checklist de Conclusão FASE 6
+### 6.7 Checklist de Conclusão FASE 6
 
-- [ ] ✅ Stacks antigas deletadas em us-east-2
-- [ ] ✅ Stacks antigas deletadas em us-east-1
-- [ ] ✅ Validação completa (Lambdas antigas gone, novas em sa-east-1)
-- [ ] ✅ Commit final realizado
-- [ ] ✅ Release tag criada e pushed
+**CloudFormation & AWS:**
+- [ ] ✅ Stacks antigas deletadas em us-east-2 (FipeDataStack-stg, FipeApiStack-stg)
+- [ ] ✅ Stacks antigas deletadas em us-east-1 (FipeDataStack-prd, FipeApiStack-prd)
+- [ ] ✅ Validação: Lambdas antigas removidas (us-east-2 e us-east-1 vazias)
+- [ ] ✅ Validação: 4 Lambdas novas existem em sa-east-1
+
+**GitHub:**
+- [ ] ✅ Workflows antigas deletadas (deploy-development.yml, deploy-stage.yml, deploy-production.yml)
+- [ ] ✅ Novo workflow mantido (deploy-sa-east-1.yml)
+- [ ] ✅ GitHub Environments consolidados (deletado: dev, stage | mantido: production)
+
+**Git & Documentação:**
+- [ ] ✅ Commit de deletação de workflows realizado
+- [ ] ✅ Commit final de limpeza realizado
+- [ ] ✅ Release tag v2.0.0-sa-east-1-consolidation criada e pushed
 - [ ] ✅ Equipe notificada de conclusão
+
+**Resumo Final:**
+- ✅ Consolidação completa em sa-east-1
+- ✅ Economia de ~40-50% em custos
+- ✅ Plataforma funcionando com 1 stack, 4 Lambdas, 3 SQS Queues
+- ✅ Dual-write validado em STG + PRD RDS
 
 ---
 
