@@ -6,7 +6,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: production  # Usa environment production para credenciais e variáveis
+    environment: development  # Usa environment development para credenciais e variáveis
 
     steps:
       - name: Checkout repository
