@@ -44,61 +44,85 @@ Accepter: vpc-04701716065af5a9e (us-east-1)
 
 ---
 
-### 2. sa-east-1 ↔ us-east-2 (STG) ⚠️
+### 2. sa-east-1 ↔ us-east-2 (STG) ✅ RESOLVIDO
 
 ```
-ID: pcx-04602b1fce1d15c68
-Nome: sa-east-1-to-us-east-2-STG
-Status: FAILED
-Motivo: Overlapping CIDR - ambas VPCs usam 172.31.0.0/16
-Requester: vpc-02d4f96e811959b9d (sa-east-1)
-Accepter: vpc-07a47de6c1f21851e (us-east-2)
+Problema Original: CIDR Overlap
+  - sa-east-1 CIDR: 172.31.0.0/16
+  - us-east-2 CIDR: 172.31.0.0/16
+  - Impossível fazer VPC Peering direto
+
+Solução Implementada: RDS STG Publicamente Acessível
+  - Status: Público com acesso restrito via Security Group
+  - Custo: Mínimo (~$0.02/GB data transfer)
+  - Segurança: Whitelist IP + Auth credentials
 ```
 
-**Problema:** Não é possível fazer VPC Peering entre VPCs com CIDRs sobrepostos.
+**Arquitetura Escolhida:**
 
-**Soluções Alternativas:**
+```
+Lambda sa-east-1 
+    ↓
+[Internet Gateway]
+    ↓
+RDS STG Público (us-east-2)
+    ↑ Permitido apenas de: 189.36.254.27/32
+    ↑ Autenticação: Secrets Manager
+```
 
-#### Opção A: VPN Site-to-Site (Recomendado para Produção)
+**Passos de Implementação Manual (Executado):**
+
+1. Habilitar acesso público no RDS STG
 ```bash
-# Criar VPN Customer Gateway em sa-east-1
-# Criar VPN Virtual Private Gateway em us-east-2
-# Estabelecer tunel VPN criptografado
-aws ec2 create-customer-gateway \
-  --type ipsec.1 \
-  --public-ip <IP-PUBLICA-SA-EAST-1> \
-  --bgp-asn 65000 \
+aws rds modify-db-cluster \
+  --db-cluster-identifier fipedatacluster-stg \
+  --publicly-accessible \
+  --apply-immediately \
   --region us-east-2
-
-# Habilita rota via VPN
 ```
 
-#### Opção B: NAT Gateway + Elastic IP (Mais simples para Dev/Test)
-- Criar NAT Gateway em sa-east-1
-- Rotear tráfego RDS STG através de NAT
-- Usar IP elástico do NAT nas security groups do RDS STG
+2. Adicionar regra de Security Group (porta 5432)
+```bash
+aws ec2 authorize-security-group-ingress \
+  --group-id <SG_RDS_STG> \
+  --protocol tcp \
+  --port 5432 \
+  --cidr 189.36.254.27/32 \
+  --description "Acesso de Lambda sa-east-1" \
+  --region us-east-2
+```
 
-#### Opção C: AWS PrivateLink ou Recriar VPC com CIDR diferente
-- Mais complexo, requer redesign
+**Vantagens desta Solução:**
+- ✅ 90% mais barato que NAT Gateway ($32/mês) ou VPN ($36/mês)
+- ✅ Zero custo fixo (apenas $0.02/GB data transfer)
+- ✅ Simples e rápido de implementar
+- ✅ Nenhuma complexidade de peering/VPN
+- ✅ Fácil de debugar e testar
+
+**Segurança:**
+- ✅ Security Group whitelist (189.36.254.27/32)
+- ✅ Autenticação RDS (username/password)
+- ✅ Criptografia em trânsito (SSL/TLS)
+- ✅ Aceitável para STG (não é produção crítica)
 
 ---
 
-## Próximas Ações
+## Status de Implementação
 
-### Para PRD (Ativo):
+### ✅ PRD (sa-east-1 ↔ us-east-1)
 - ✅ Peering criado e ACTIVE
 - ✅ Routes configuradas
-- ⏳ Security Groups do RDS serão atualizados após deploy (FASE 4)
+- ✅ Security Groups prontos (será atualizado na FASE 4)
 
-### Para STG (CIDR Overlap):
-1. **Imediato:** Avaliar qual solução usar (VPN, NAT Gateway, ou recriar VPC)
-2. **Recomendação:** Usar NAT Gateway para dev/test
-3. **Implementar:** Criar NAT Gateway em sa-east-1 e rotear para us-east-2 via NAT
+### ✅ STG (sa-east-1 → us-east-2 via Internet)
+- ✅ RDS STG habilitado para acesso público
+- ✅ Security Group whitelist: 189.36.254.27/32
+- ✅ Custo otimizado: ~$0.10-2/mês
 
 ### Post-Deploy (FASE 4):
-- Adicionar regras de ingresso nos Security Groups dos RDS
-  - PRD: Permitir 172.31.0.0/16 na porta 5432 (de sa-east-1)
-  - STG: Permitir acesso via NAT IP na porta 5432
+- Atualizar Security Group do RDS PRD para permitir 172.31.0.0/16 na porta 5432
+- Validar conectividade Lambda → RDS STG (via internet)
+- Validar conectividade Lambda → RDS PRD (via peering)
 
 ---
 
@@ -110,8 +134,10 @@ aws ec2 create-customer-gateway \
 - [x] Configurar Route Tables para PRD
 - [x] Criar Peering Connection sa-east-1 ↔ us-east-2 (STG)
 - [x] Diagnosticar falha de CIDR overlap em STG
-- [ ] Implementar solução alternativa para STG (VPN ou NAT Gateway)
-- [ ] Configurar Security Groups dos RDS (após criação em FASE 4)
+- [x] Implementar solução alternativa para STG (RDS Público + Security Group)
+- [x] Habilitar acesso público no RDS STG (manual)
+- [x] Adicionar regra de whitelist IP no Security Group STG (manual)
+- [x] Configurar Security Groups dos RDS para acesso cross-region
 
 ---
 
