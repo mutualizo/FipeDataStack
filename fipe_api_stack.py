@@ -209,13 +209,13 @@ class FipeApiStack(NestedStack):
         price_loader_env = {**common_env, 
                             "SQS_INPUT_URL": model_queue.queue_url, 
                             "SQS_OUTPUT_URL": price_queue.queue_url}
-        ingestor_env = {**common_env, 
-                        "SQS_INPUT_URL": price_queue.queue_url, 
-                        "RDS_HOST": db_cluster_endpoint, 
-                        "RDS_PORT": db_cluster_port, 
-                        "RDS_DATABASE": "fipedata", 
-                        "RDS_USER": "postgres", 
-                        "DB_SECRET_ARN": db_secret_arn}
+        ingestor_env = {**common_env,
+                        "SQS_INPUT_URL": price_queue.queue_url,
+                        "RDS_HOST": db_cluster_endpoint or "remote-rds",
+                        "RDS_PORT": db_cluster_port or "5432",
+                        "RDS_DATABASE": "fipedata",
+                        "RDS_USER": "postgres",
+                        "DB_SECRET_ARN": db_secret_arn or ""}
         
         # ====================================================================
         # LAMBDAS (sem sufixo de stage)
@@ -280,7 +280,6 @@ class FipeApiStack(NestedStack):
             lambda_event_sources.SqsEventSource(
                 manufacturer_queue,
                 batch_size=10,
-                max_batching_window=Duration.seconds(30),
                 report_batch_item_failures=True
             )
         )
@@ -308,7 +307,6 @@ class FipeApiStack(NestedStack):
             lambda_event_sources.SqsEventSource(
                 model_queue,
                 batch_size=10,
-                max_batching_window=Duration.seconds(30),
                 report_batch_item_failures=True
             )
         )
@@ -348,7 +346,6 @@ class FipeApiStack(NestedStack):
             lambda_event_sources.SqsEventSource(
                 price_queue,
                 batch_size=10,
-                max_batching_window=Duration.seconds(30),
                 report_batch_item_failures=True
             )
         )
