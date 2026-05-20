@@ -18,3 +18,6 @@ fipe_api_layer/python
 .settings
 
 .env
+
+# ambiente virtual 
+venv/
