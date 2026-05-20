@@ -687,9 +687,83 @@ fipe_api_stack.py:
 
 ---
 
-## FASE 5: TESTES E2E (2-3 horas)
+## 🔄 FASE 5: TESTES E2E (2-3 horas)
 
-### 5.1 Teste Manual: Pipeline Completa
+**Status:** 🔄 PENDENTE  
+**Documentação Detalhada:** docs/FASE-5-TESTES-E2E.md  
+
+---
+
+### 5.1 Validação de Pré-Teste
+
+Antes de executar o teste, validar que tudo está pronto:
+
+- [ ] Verificar que 5 Lambdas existem em sa-east-1
+  ```bash
+  aws lambda list-functions --region sa-east-1 \
+    --query 'Functions[?contains(FunctionName, `Fipe`)].FunctionName' \
+    --output table
+  ```
+
+- [ ] Verificar que 6 SQS FIFO queues existem (3 + 3 DLQs)
+  ```bash
+  aws sqs list-queues --region sa-east-1 \
+    --query 'QueueUrls[?contains(@, `fipe`)]' \
+    --output json | jq length
+  ```
+
+- [ ] Verificar Event Source Mappings (3x para model, price, ingestor)
+  ```bash
+  aws lambda list-event-source-mappings --region sa-east-1 \
+    --query 'EventSourceMappings[?contains(EventSourceArn, `fipe`)].State' \
+    --output table
+  ```
+
+- [ ] Verificar RDS STG endpoint acessível
+  ```bash
+  aws rds describe-db-clusters --db-cluster-identifier fipedatacluster-stg \
+    --region us-east-2 \
+    --query 'DBClusters[0].[Endpoint, Status, PubliclyAccessible]'
+  ```
+
+- [ ] Verificar RDS PRD endpoint acessível
+  ```bash
+  aws rds describe-db-clusters --db-cluster-identifier fipedatacluster-prd \
+    --region us-east-1 \
+    --query 'DBClusters[0].[Endpoint, Status]'
+  ```
+
+- [ ] Verificar VPC Peering PRD ACTIVE
+  ```bash
+  aws ec2 describe-vpc-peering-connections --region sa-east-1 \
+    --query 'VpcPeeringConnections[?Status.Code==`active`].VpcPeeringConnectionId'
+  ```
+
+---
+
+### 5.2 Preparação de Dados
+
+- [ ] Limpar SQS queues (opcional, se houver mensagens antigas)
+  ```bash
+  # Purge das 6 filas
+  for queue in manufacturer-queue model-queue price-queue \
+               manufacturer-dlq model-dlq price-dlq; do
+    aws sqs purge-queue \
+      --queue-url https://sqs.sa-east-1.amazonaws.com/652510808251/fipe-$queue.fifo \
+      --region sa-east-1
+  done
+  ```
+
+- [ ] Capturar row counts iniciais (benchmark)
+  ```bash
+  # Contar registros antes do teste (STG e PRD)
+  psql -h fipedatacluster-stg.cluster-cdqeius2qmwf.us-east-2.rds.amazonaws.com \
+    -U postgres -d fipedata -c "SELECT COUNT(*) FROM fipe_vehicle_price;"
+  ```
+
+---
+
+### 5.3 Executar Pipeline E2E
 
 - [ ] Invocar FipeManufacturerLoader
   ```bash
@@ -697,68 +771,177 @@ fipe_api_stack.py:
   aws lambda invoke \
     --function-name FipeManufacturerLoader \
     --region sa-east-1 \
+    --payload '{}' \
     response.json
+  
+  cat response.json | jq .
   ```
 
-- [ ] Monitorar logs em cascata
+- [ ] Monitorar logs em cascata (abrir 4+ abas de terminal)
+
+  **Aba 1 - FipeManufacturerLoader:**
   ```bash
-  export AWS_PROFILE=mutualizo
-  aws logs tail /aws/lambda/FipeManufacturerLoader --follow --region sa-east-1
-  aws logs tail /aws/lambda/FipeModelLoader --follow --region sa-east-1
-  aws logs tail /aws/lambda/FipePriceLoader --follow --region sa-east-1
-  aws logs tail /aws/lambda/FipeSomaIngestor --follow --region sa-east-1
+  aws logs tail /aws/lambda/FipeManufacturerLoader --region sa-east-1 --follow --format short
   ```
+
+  **Aba 2 - FipeModelLoader:**
+  ```bash
+  aws logs tail /aws/lambda/FipeModelLoader --region sa-east-1 --follow --format short
+  ```
+
+  **Aba 3 - FipePriceLoader:**
+  ```bash
+  aws logs tail /aws/lambda/FipePriceLoader --region sa-east-1 --follow --format short
+  ```
+
+  **Aba 4 - FipeSomaIngestor:**
+  ```bash
+  aws logs tail /aws/lambda/FipeSomaIngestor --region sa-east-1 --follow --format short
+  ```
+
+- [ ] Procurar por sinais de sucesso nos logs:
+  - ✅ "Fetched 40 manufacturers from FIPE API"
+  - ✅ "Sent 1200 messages to SQS model-queue"
+  - ✅ "Sent 2400 messages to SQS price-queue"
+  - ✅ "Inserted 2400 rows in STG"
+  - ✅ "Inserted 2400 rows in PRD"
+  - ✅ "Committed transaction STG"
+  - ✅ "Committed transaction PRD"
 
 ---
 
-### 5.2 Validar Dual-Write em Ambos RDS
+### 5.4 Validar Dados em RDS
 
 - [ ] Contar registros em RDS STG (us-east-2)
   ```bash
-  psql -h fipedata-cluster-stg.xxxxx.us-east-2.rds.amazonaws.com \
-    -U postgres -d fipedata \
-    -c "SELECT COUNT(*) FROM fipe_vehicle_price;"
+  psql -h fipedatacluster-stg.cluster-cdqeius2qmwf.us-east-2.rds.amazonaws.com \
+    -U postgres -d fipedata -c \
+    "SELECT COUNT(*) as price_count FROM fipe_vehicle_price;"
+  
+  # Esperado: 2400 (ou novo valor)
   ```
 
 - [ ] Contar registros em RDS PRD (us-east-1)
   ```bash
-  psql -h fipedata-cluster-prd.xxxxx.us-east-1.rds.amazonaws.com \
-    -U postgres -d fipedata \
-    -c "SELECT COUNT(*) FROM fipe_vehicle_price;"
+  psql -h fipedatacluster-prd.cluster-chkg2mxlx9z0.us-east-1.rds.amazonaws.com \
+    -U postgres -d fipedata -c \
+    "SELECT COUNT(*) as price_count FROM fipe_vehicle_price;"
+  
+  # Esperado: IDÊNTICO ao STG
   ```
 
-- [ ] Validar counts são iguais
+- [ ] Validar consistency (ambos têm exatamente o mesmo número)
   ```bash
-  # STG e PRD devem ter exatamente o mesmo número de registros
+  # STG_COUNT == PRD_COUNT (byte a byte)
+  ```
+
+- [ ] Amostragem de dados (verificar primeiras 5 linhas)
+  ```bash
+  # Ambos devem ter dados idênticos
+  psql -h fipedatacluster-stg... -U postgres -d fipedata \
+    -c "SELECT fipe_id, name, price FROM fipe_vehicle_price LIMIT 5;"
   ```
 
 ---
 
-### 5.3 Validar DLQs Vazias
+### 5.5 Validar Dead Letter Queues
 
-- [ ] Verificar DLQs
+- [ ] Verificar DLQ Manufacturer (esperado: 0)
   ```bash
-  export AWS_PROFILE=mutualizo
   aws sqs get-queue-attributes \
-    --queue-url https://sqs.sa-east-1.amazonaws.com/xxx/fipe-manufacturer-dlq.fifo \
+    --queue-url https://sqs.sa-east-1.amazonaws.com/652510808251/fipe-manufacturer-dlq.fifo \
     --attribute-names ApproximateNumberOfMessages \
-    --region sa-east-1
-  # Esperado: 0
+    --region sa-east-1 \
+    --query 'Attributes.ApproximateNumberOfMessages'
   ```
 
-- [ ] Verificar todas as 3 DLQs (manufacturer, model, price)
+- [ ] Verificar DLQ Model (esperado: 0)
+  ```bash
+  aws sqs get-queue-attributes \
+    --queue-url https://sqs.sa-east-1.amazonaws.com/652510808251/fipe-model-dlq.fifo \
+    --attribute-names ApproximateNumberOfMessages \
+    --region sa-east-1 \
+    --query 'Attributes.ApproximateNumberOfMessages'
+  ```
+
+- [ ] Verificar DLQ Price (esperado: 0)
+  ```bash
+  aws sqs get-queue-attributes \
+    --queue-url https://sqs.sa-east-1.amazonaws.com/652510808251/fipe-price-dlq.fifo \
+    --attribute-names ApproximateNumberOfMessages \
+    --region sa-east-1 \
+    --query 'Attributes.ApproximateNumberOfMessages'
+  ```
+
+- [ ] Se houver mensagens em DLQ:
+  ```bash
+  # Receber e analisar a mensagem
+  aws sqs receive-message \
+    --queue-url https://sqs.sa-east-1.amazonaws.com/652510808251/fipe-xxx-dlq.fifo \
+    --max-number-of-messages 10 \
+    --region sa-east-1 | jq '.Messages[] | {MessageId, Body, Attributes}'
+  ```
 
 ---
 
-### 5.4 Checklist de Conclusão FASE 5
+### 5.6 Testes de Cenários Especiais (Opcional)
 
-- [ ] ✅ Pipeline completa executada
-- [ ] ✅ Logs sem erros (todas as 4 lambdas)
+- [ ] Teste de Rollback em PRD (simular falha)
+  - Remover temporariamente rule de SG em RDS PRD
+  - Invocar FipeManufacturerLoader
+  - Validar que ambos RDS ficam sem novos registros (rollback bem-sucedido)
+  - Restaurar rule de SG
+
+- [ ] Teste de Throttling FIPE API (automático)
+  - Monitorar logs para "retry\|backoff\|throttle"
+  - Validar que exponential backoff funciona
+
+- [ ] Teste de Timeout
+  - Verificar que cada Lambda tem timeout adequado (600s para manufacturer, 300s para outros)
+
+---
+
+### 5.7 Performance Metrics
+
+- [ ] Medir tempo total da pipeline
+  ```bash
+  # Esperado: ~20-30 segundos da primeira à última Lambda
+  ```
+
+- [ ] Verificar memory usage
+  ```bash
+  # Esperado: < 200 MB (configurado: 256 MB)
+  ```
+
+- [ ] Estimativa de custo de data transfer
+  ```bash
+  # Esperado: ~$0.01/mês (2400 registros * 100 bytes * $0.02/GB)
+  ```
+
+---
+
+### 5.8 Checklist de Conclusão FASE 5 ✅
+
+- [ ] ✅ Pré-requisitos validados (Lambdas, SQS, endpoints)
+- [ ] ✅ Dados preparados (queues limpas)
+- [ ] ✅ FipeManufacturerLoader invocado manualmente
+- [ ] ✅ Pipeline completa executada (todas as 4 Lambdas disparadas)
+- [ ] ✅ Logs analisados (nenhum erro crítico detectado)
 - [ ] ✅ Dados injetados em RDS STG
 - [ ] ✅ Dados injetados em RDS PRD
-- [ ] ✅ Row counts iguais em ambos RDS
-- [ ] ✅ DLQs vazias (0 mensagens)
-- [ ] ✅ Documentar resultado
+- [ ] ✅ Row counts iguais em STG e PRD (consistency validada)
+- [ ] ✅ Todas as 3 DLQs vazias (0 mensagens)
+- [ ] ✅ Performance dentro do esperado (20-30s)
+- [ ] ✅ Testes de cenários especiais passaram (se executados)
+- [ ] ✅ Documentação de resultados realizada
+- [ ] ✅ Relatório final salvo em `PHASE-5-RESULTS.txt`
+
+---
+
+## Referência Completa
+
+Para instruções MUITO MAIS DETALHADAS sobre cada etapa, ver:
+👉 **docs/FASE-5-TESTES-E2E.md** ← LEITURA OBRIGATÓRIA
 
 ---
 
