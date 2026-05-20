@@ -1,8 +1,8 @@
 # CHECKLIST DETALHADO: Melhoria 2 - Consolidação sa-east-1 com Dual-Write RDS
 
-**Versão:** 2026-05-19  
-**Status:** 🔄 Em Implementação (FASE 1 ✅ | FASE 2 ✅ | FASE 3 ✅)  
-**Tempo Gasto até agora:** ~9 horas (Fases 1-3)  
+**Versão:** 2026-05-20  
+**Status:** 🔄 Em Implementação (FASE 1 ✅ | FASE 2 ✅ | FASE 3 ✅ | FASE 4 ✅)  
+**Tempo Gasto até agora:** ~10 horas (Fases 1-4)  
 **Tempo Estimado Total:** 10-13 horas  
 **Abordagem:** Stack Única em sa-east-1 com Dual-Write RDS (STG + PRD)  
 **Branch:** `multi-region-sa-east-1` (baseada em `development`)  
@@ -526,59 +526,164 @@ Peering      Internet      Peering
 
 ---
 
-## FASE 4: DEPLOY STACK EM sa-east-1 (2-3 horas)
+## ✅ FASE 4 COMPLETA: DEPLOY STACK EM sa-east-1
 
-### 4.1 Deploy via GitHub Actions
+**Data de Conclusão:** 2026-05-20  
+**Tempo Total:** ~1 hora (mais rápido que estimado de 2-3 horas)  
+**Documentação:** docs/FASE-4-DEPLOY-SA-EAST-1.md  
+**Status:** ✅ COMPLETO
 
-- [ ] Ir para: Actions → Deploy sa-east-1
-- [ ] Clicar: Run workflow
-- [ ] Selecionar: production
-- [ ] Aguardar conclusão (~5-10 minutos)
+---
 
-OU
+### 4.1 Deploy via CDK Local ✅
 
+**Executado manualmente com Python 3.12:**
 ```bash
 export AWS_PROFILE=mutualizo
-cdk deploy FipeDataStack-sa-east-1 FipeApiStack-sa-east-1 \
-  --region sa-east-1 \
-  --context vpc_id=vpc-sa-east-1-default \
-  --context allowed_ip=YOUR_IP \
+cdk deploy \
+  --context vpc_id=vpc-043ab9c1ba9c44ef9 \
+  --context allowed_ip=189.36.254.27/32 \
   --require-approval never
+```
+
+**Resultado:**
+- Stack ARN: `arn:aws:cloudformation:sa-east-1:652510808251:stack/FipeDataStack/135933d0-5461-11f1-b544-020ecffdc113`
+- Deployment time: 219.82s
+- Total time: 235.41s
+- Status: ✅ **CREATE_COMPLETE**
+
+---
+
+### 4.2 Validar Deploy Completo ✅
+
+- [x] ✅ Lambdas criadas em sa-east-1
+  ```bash
+  # Resultado: 5 Lambdas criadas
+  # - FipeManufacturerLoader
+  # - FipeModelLoader
+  # - FipePriceLoader
+  # - FipeSomaIngestor
+  # - RedriveDLQLambda
+  ```
+
+- [x] ✅ SQS criadas em sa-east-1
+  ```bash
+  # Resultado: 3 FIFO queues + 3 DLQs criadas
+  # - fipe-manufacturer-queue.fifo
+  # - fipe-model-queue.fifo
+  # - fipe-price-queue.fifo
+  # - fipe-manufacturer-dlq.fifo
+  # - fipe-model-dlq.fifo
+  # - fipe-price-dlq.fifo
+  ```
+
+- [x] ✅ EventBridge Rule criada
+  ```bash
+  # Resultado: FipeManufacturerMonthlyRule criada
+  # Schedule: 0 1 4 * * (4º dia do mês às 01:00 UTC)
+  ```
+
+- [x] ✅ Lambda Layer criada
+  ```bash
+  # Resultado: FipeDependencies layer criado com sucesso
+  ```
+
+- [x] ✅ Event Source Mappings configurados
+  ```bash
+  # Resultado: 3 event source mappings (model, price, ingestor)
+  # - Todos mapeados para suas respectivas SQS FIFO queues
+  # - Sem max_batching_window (removido para FIFO)
+  ```
+
+---
+
+### 4.3 Problemas Encontrados e Resolvidos ✅
+
+| Problema | Erro | Solução | Commit |
+|----------|------|---------|--------|
+| PYTHON_3_12 não disponível | Runtime error | Atualizar CDK para 2.256.0 | Integrado |
+| FIFO com batching window | "Batching window not supported" | Remover max_batching_window | 49f4f7d |
+| RDS_HOST=null | "Unable to deserialize" | Adicionar defaults em env | 49f4f7d |
+| VPC ID inválido | "Could not find VPC" | Corrigir para vpc-043ab9c1ba9c44ef9 | Integrado |
+
+---
+
+### 4.4 Recursos CloudFormation Criados ✅
+
+| Recurso | Tipo | Status |
+|---------|------|--------|
+| FipeDataStack | Stack principal | ✅ CREATE_COMPLETE |
+| FipeApiStack | Nested stack | ✅ CREATE_COMPLETE |
+| Security Groups | (2x) | ✅ CREATE_COMPLETE |
+| IAM Roles | (4x) | ✅ CREATE_COMPLETE |
+| Lambda Functions | (5x) | ✅ CREATE_COMPLETE |
+| SQS Queues | (6x FIFO) | ✅ CREATE_COMPLETE |
+| DLQs | (3x FIFO) | ✅ CREATE_COMPLETE |
+| Lambda Layer | FipeDependencies | ✅ CREATE_COMPLETE |
+| Event Source Mappings | (3x) | ✅ CREATE_COMPLETE |
+| Lambda Permissions | (3x) | ✅ CREATE_COMPLETE |
+| EventBridge Rule | Manufacturer Monthly | ✅ CREATE_COMPLETE |
+
+**Total: 4 recursos principais + 30+ recursos aninhados**
+
+---
+
+### 4.5 Proteção de STG e PRD ✅
+
+**Snapshots de Segurança Criados:**
+- STG Pre-Deploy: `fipedata-stg-pre-deploy-20260520-121709`
+- PRD Pre-Deploy: `fipedata-prd-pre-deploy-20260520-121709`
+
+**Validação:**
+- [x] ✅ RDS clusters STG e PRD não foram modificados
+- [x] ✅ Nenhuma regra de SG removida ou alterada
+- [x] ✅ Endpoints RDS permanecem os mesmos
+- [x] ✅ Dados originais intactos
+
+---
+
+### 4.6 Configuração Dual-Write Verificada ✅
+
+**Endpoints Configurados no Lambda:**
+```python
+RDS_HOST_STG = "fipedatacluster-stg.cluster-cdqeius2qmwf.us-east-2.rds.amazonaws.com"
+RDS_HOST_PRD = "fipedatacluster-prd.cluster-chkg2mxlx9z0.us-east-1.rds.amazonaws.com"
+```
+
+**Conectividade:**
+- [x] ✅ VPC Peering PRD (sa-east-1 ↔ us-east-1) ACTIVE
+- [x] ✅ Internet access STG (sa-east-1 → us-east-2 público)
+- [x] ✅ Security Groups whitelist configurados
+
+---
+
+### 4.7 Commit Realizado ✅
+
+**Commit:** `49f4f7d` - Fix: fipe_api_stack.py - remove max_batching_window for FIFO queues
+
+**Mudanças:**
+```
+fipe_api_stack.py:
+  - Remove max_batching_window de todas as SqsEventSource
+  - Fix ingestor_env para lidar com None values
+  - Preservar configuração dual-write RDS (STG + PRD)
 ```
 
 ---
 
-### 4.2 Validar Deploy Completo
+### 4.8 Checklist de Conclusão FASE 4 ✅
 
-- [ ] Lambdas criadas em sa-east-1
-  ```bash
-  export AWS_PROFILE=mutualizo
-  aws lambda list-functions --region sa-east-1 | grep -i fipe
-  # Esperado: FipeManufacturerLoader, FipeModelLoader, FipePriceLoader, FipeSomaIngestor
-  ```
-
-- [ ] SQS criadas em sa-east-1
-  ```bash
-  export AWS_PROFILE=mutualizo
-  aws sqs list-queues --region sa-east-1 | grep -i fipe
-  # Esperado: fipe-manufacturer-queue, fipe-model-queue, fipe-price-queue
-  ```
-
-- [ ] EventBridge Rule criada
-  ```bash
-  export AWS_PROFILE=mutualizo
-  aws events list-rules --region sa-east-1 --name-prefix FipeManufacturer
-  ```
-
----
-
-### 4.3 Checklist de Conclusão FASE 4
-
-- [ ] ✅ Deploy completo sem erros
-- [ ] ✅ Lambdas criadas (4 lambdas)
-- [ ] ✅ SQS criadas (3 queues + DLQs)
-- [ ] ✅ EventBridge Rule criada
-- [ ] ✅ Lambda Layer criada
+- [x] ✅ Deploy completo sem erros (CloudFormation SUCCESS)
+- [x] ✅ Lambdas criadas (5 lambdas em sa-east-1)
+- [x] ✅ SQS criadas (3 main queues + 3 DLQs, todas FIFO)
+- [x] ✅ EventBridge Rule criada (Monthly schedule ativo)
+- [x] ✅ Lambda Layer criada (FipeDependencies)
+- [x] ✅ Event Source Mappings configurados (3x)
+- [x] ✅ RDS endpoints configurados (STG + PRD)
+- [x] ✅ VPC Peering validado (PRD active)
+- [x] ✅ Security Groups validados (whitelist STG + peering PRD)
+- [x] ✅ STG e PRD protegidos (snapshots pré-deploy criados)
+- [x] ✅ Documentação atualizada (FASE-4-DEPLOY-SA-EAST-1.md)
 
 ---
 
@@ -820,13 +925,13 @@ cdk deploy FipeDataStack-sa-east-1 FipeApiStack-sa-east-1 \
 
 | Fase | Atividade | Duração | Status |
 |------|-----------|---------|--------|
-| 1 | Backup + Branch | 2-3h | ⏳ |
-| 2 | Modificações de Código | 2-3h | ⏳ |
-| 3 | VPC Peering | 1-2h | ⏳ |
-| 4 | Deploy sa-east-1 | 2-3h | ⏳ |
-| 5 | Testes E2E | 2-3h | ⏳ |
-| 6 | Limpeza | 1-2h | ⏳ |
-| | **TOTAL** | **10-13h** | |
+| 1 | Backup + Branch | 1.5h | ✅ COMPLETA |
+| 2 | Modificações de Código | 4h | ✅ COMPLETA |
+| 3 | VPC Peering | 2h | ✅ COMPLETA |
+| 4 | Deploy sa-east-1 | 1h | ✅ COMPLETA |
+| 5 | Testes E2E | 2-3h | ⏳ PENDENTE |
+| 6 | Limpeza | 1-2h | ⏳ PENDENTE |
+| | **TOTAL** | **10-13h** | **~10h executado** |
 
 ---
 
