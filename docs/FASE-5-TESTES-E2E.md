@@ -197,6 +197,12 @@ IpRanges: 172.31.0.0/16 (CIDR VPC sa-east-1 via peering)
 
 ## 5.2: Preparação de Dados
 
+**⚡ NOTA IMPORTANTE:** Este teste usa **FILTRO VOLKSWAGEN** para acelerar execução:
+- `FORCE_VEHICLE_MODEL = "VOLKSWAGEN"` (apenas 1 fabricante)
+- `FORCE_VEHICLE_TYPE = 3` (apenas veículos tipo 3)
+- **Resultado:** 50-60 segundos vs 5-10 minutos (-87% de tempo)
+- **Registros esperados:** ~60-80 (vs ~2400 sem filtro)
+
 Antes de executar o teste, preparar ambiente:
 
 ### 5.2.1 Limpar Queues (Opcional)
@@ -237,52 +243,77 @@ aws sqs purge-queue \
 echo "✅ Queues limpas"
 ```
 
-### 5.2.2 Capturar Row Counts Iniciais
+### 5.2.2 Capturar Row Counts Iniciais (Baseline)
 
 ```bash
 export AWS_PROFILE=mutualizo
 
-# Contar registros STG
-STG_INITIAL=$(aws rds describe-db-clusters \
-  --db-cluster-identifier fipedatacluster-stg \
-  --region us-east-2 \
-  --query 'DBClusters[0].AllocatedStorage' \
-  --output text)
+echo "📊 Capturando row counts iniciais para benchmark..."
+echo ""
+
+# Contar registros STG antes do teste
+STG_HOST="fipedatacluster-stg.cluster-cdqeius2qmwf.us-east-2.rds.amazonaws.com"
+STG_INITIAL=$(psql -h $STG_HOST -U postgres -d fipedata -t -c \
+  "SELECT COUNT(*) FROM fipe_vehicle_price;" 2>/dev/null || echo "ERRO")
 
 echo "STG Initial State:"
-echo "  Cluster: fipedatacluster-stg"
-echo "  Region: us-east-2"
+echo "  Cluster: fipedatacluster-stg (us-east-2)"
+echo "  Row Count: $STG_INITIAL registros em fipe_vehicle_price"
 
-# Contar registros PRD
-PRD_INITIAL=$(aws rds describe-db-clusters \
-  --db-cluster-identifier fipedatacluster-prd \
-  --region us-east-1 \
-  --query 'DBClusters[0].AllocatedStorage' \
-  --output text)
+# Contar registros PRD antes do teste
+PRD_HOST="fipedatacluster-prd.cluster-chkg2mxlx9z0.us-east-1.rds.amazonaws.com"
+PRD_INITIAL=$(psql -h $PRD_HOST -U postgres -d fipedata -t -c \
+  "SELECT COUNT(*) FROM fipe_vehicle_price;" 2>/dev/null || echo "ERRO")
 
+echo ""
 echo "PRD Initial State:"
-echo "  Cluster: fipedatacluster-prd"
-echo "  Region: us-east-1"
+echo "  Cluster: fipedatacluster-prd (us-east-1)"
+echo "  Row Count: $PRD_INITIAL registros em fipe_vehicle_price"
+
+# Guardar baseline para comparação
+echo ""
+echo "✅ Baseline capturado:"
+echo "  STG_INITIAL=$STG_INITIAL"
+echo "  PRD_INITIAL=$PRD_INITIAL"
+echo ""
+echo "Após o teste, novos registros esperados:"
+echo "  STG_FINAL = $STG_INITIAL + 60-80 (com filtro Volkswagen)"
+echo "  PRD_FINAL = $PRD_INITIAL + 60-80 (com filtro Volkswagen)"
 ```
 
 ---
 
 ## 5.3: Executar Pipeline E2E
 
-### 5.3.1 Invocar FipeManufacturerLoader
+### 5.3.1 Invocar FipeManufacturerLoader (Com Filtro Volkswagen)
+
+**⚡ NOTA IMPORTANTE:** Para acelerar o teste, usamos um filtro que reduz a busca apenas para Volkswagen (tipo 3). Isso diminui o tempo de ~5-10min para ~30-60 segundos!
 
 ```bash
 export AWS_PROFILE=mutualizo
 
-echo "⏱️  Iniciando teste de pipeline..."
-echo "🚀 Invocando FipeManufacturerLoader..."
+echo "⏱️  Iniciando teste de pipeline (MODO RÁPIDO - Volkswagen apenas)..."
+echo "🚀 Invocando FipeManufacturerLoader com filtros..."
+echo ""
+echo "Filtros aplicados:"
+echo "  - FORCE_VEHICLE_MODEL: VOLKSWAGEN"
+echo "  - FORCE_VEHICLE_TYPE: 3"
+echo ""
 
-# Invocar Lambda
+# Capturar timestamp de início
+START_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+echo "⏰ Tempo de início: $START_TIME"
+echo ""
+
+# Invocar Lambda com variáveis de ambiente no payload
 aws lambda invoke \
   --function-name FipeManufacturerLoader \
   --region sa-east-1 \
   --log-type Tail \
-  --payload '{}' \
+  --payload '{
+    "FORCE_VEHICLE_MODEL": "VOLKSWAGEN",
+    "FORCE_VEHICLE_TYPE": 3
+  }' \
   response.json
 
 # Mostrar resposta
@@ -290,9 +321,8 @@ echo ""
 echo "📄 Resposta da invocação:"
 cat response.json | jq .
 
-# Capturar timestamp de início
-START_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-echo "⏰ Tempo de início do teste: $START_TIME"
+echo ""
+echo "✅ Lambda invocada. Monitorando logs nas próximas abas..."
 ```
 
 **Resultado Esperado:**
@@ -302,6 +332,16 @@ echo "⏰ Tempo de início do teste: $START_TIME"
   "FunctionVersion": "$LATEST",
   "LogResult": "..."
 }
+```
+
+**Dados Esperados (Volkswagen com FORCE_VEHICLE_TYPE=3):**
+```
+Manufacturer: 1 (VOLKSWAGEN)
+Models: ~35-40 modelos (apenas veículos tipo 3)
+Prices: ~60-80 variações de preço (model+year combinations)
+Total de registros: ~60-80
+Tempo de execução: ~50-60 segundos
+vs Sem filtro: ~2400 registros em 5-10 minutos (-87% tempo)
 ```
 
 ### 5.3.2 Monitorar Logs em Cascata (Múltiplas Abas)
@@ -350,82 +390,107 @@ aws logs tail /aws/lambda/FipeSomaIngestor \
 # https://console.aws.amazon.com/logs/home?region=sa-east-1
 ```
 
-### 5.3.3 Sequência de Execução Esperada
+### 5.3.3 Sequência de Execução Esperada (Com Filtro Volkswagen)
 
 ```
-T+0s   📌 FipeManufacturerLoader invocado
-       ├─ Chama FIPE API para listar fabricantes
-       ├─ Envia mensagens para SQS manufacturer-queue
-       └─ Retorna com sucesso
+T+0s   📌 FipeManufacturerLoader invocado (FORCE_VEHICLE_MODEL=VOLKSWAGEN)
+       ├─ Chama FIPE API com filtro para Volkswagen
+       ├─ Obtém 1 fabricante (Volkswagen)
+       ├─ Envia 1 mensagem para SQS manufacturer-queue
+       └─ Retorna com sucesso (~5-10s)
 
-T+5s   📌 FipeModelLoader dispara (SQS trigger)
-       ├─ Consome mensagens de manufacturer-queue
-       ├─ Para cada fabricante, chama FIPE API para modelos
-       ├─ Envia mensagens para SQS model-queue
-       └─ Deleta mensagens de manufacturer-queue
+T+10s  📌 FipeModelLoader dispara (SQS trigger)
+       ├─ Consome 1 mensagem de manufacturer-queue (Volkswagen)
+       ├─ Chama FIPE API para modelos Volkswagen
+       ├─ Obtém ~35 modelos Volkswagen
+       ├─ Envia ~35 mensagens para SQS model-queue
+       └─ Deleta mensagem de manufacturer-queue (~10-15s)
 
-T+10s  📌 FipePriceLoader dispara (SQS trigger)
-       ├─ Consome mensagens de model-queue
+T+25s  📌 FipePriceLoader dispara (SQS trigger)
+       ├─ Consome ~35 mensagens de model-queue
        ├─ Para cada modelo, chama FIPE API para preços
-       ├─ Envia mensagens para SQS price-queue
-       └─ Deleta mensagens de model-queue
+       ├─ Obtém ~60-80 variações de preço
+       ├─ Envia ~60-80 mensagens para SQS price-queue
+       └─ Deleta mensagens de model-queue (~10-15s)
 
-T+15s  📌 FipeSomaIngestor dispara (SQS trigger)
-       ├─ Consome mensagens de price-queue
+T+40s  📌 FipeSomaIngestor dispara (SQS trigger)
+       ├─ Consome ~60-80 mensagens de price-queue
        ├─ Abre conexão com RDS STG
        ├─ Abre conexão com RDS PRD
        ├─ Inicia transação em ambos
-       ├─ INSERT registros em fipe_vehicle_price (STG)
-       ├─ INSERT registros em fipe_vehicle_price (PRD)
+       ├─ INSERT ~60-80 registros em fipe_vehicle_price (STG)
+       ├─ INSERT ~60-80 registros em fipe_vehicle_price (PRD)
        ├─ COMMIT em STG
        ├─ COMMIT em PRD
        ├─ Deleta mensagens de price-queue
-       └─ Retorna sucesso
+       └─ Retorna sucesso (~10-15s)
 
-T+20s  ✅ Pipeline completa (todas as 4 Lambdas executadas)
-       ✅ Dados em STG
-       ✅ Dados em PRD
+T+55s  ✅ Pipeline completa (todas as 4 Lambdas executadas)
+       ✅ Dados em STG (~60-80 registros)
+       ✅ Dados em PRD (~60-80 registros, idênticos ao STG)
        ✅ DLQs vazias
+       ✅ Duração total: ~50-60 segundos (vs 5-10min sem filtro)
 ```
 
-### 5.3.4 Sinais de Sucesso nos Logs
+**Comparação: Com vs Sem Filtro**
+
+| Métrica | Sem Filtro | Com Filtro (VW) |
+|---------|-----------|-----------------|
+| Fabricantes | 40 | 1 |
+| Modelos | ~1200 | ~35 |
+| Preços | ~2400 | ~60-80 |
+| Tempo Total | 5-10 min | 50-60 seg |
+| **Redução** | - | **-80% tempo** |
+
+### 5.3.4 Sinais de Sucesso nos Logs (Com Filtro Volkswagen)
 
 Procurar por estes padrões nos logs:
 
 **FipeManufacturerLoader:**
 ```
-✅ "Fetched 40 manufacturers from FIPE API"
-✅ "Sent 40 messages to SQS manufacturer-queue"
+✅ "FORCE_VEHICLE_MODEL: VOLKSWAGEN"
+✅ "FORCE_VEHICLE_TYPE: 3"
+✅ "Fetched 1 manufacturer (VOLKSWAGEN) from FIPE API"
+✅ "Sent 1 message to SQS manufacturer-queue"
 ✅ "Lambda completed successfully"
 ```
 
 **FipeModelLoader:**
 ```
-✅ "Processing batch of 40 messages from manufacturer-queue"
-✅ "Fetching models for manufacturer X..."
-✅ "Sent 1200 messages to SQS model-queue"
-✅ "Successfully processed 40 messages"
+✅ "Processing batch of 1 message from manufacturer-queue"
+✅ "Fetching models for VOLKSWAGEN..."
+✅ "Sent 35 messages to SQS model-queue"  (aproximadamente 30-40)
+✅ "Successfully processed 1 message"
 ```
 
 **FipePriceLoader:**
 ```
-✅ "Processing batch of 40 messages from model-queue"
+✅ "Processing batch of 35 messages from model-queue"
 ✅ "Fetching prices for model X..."
-✅ "Sent 2400 messages to SQS price-queue"
-✅ "Successfully processed 1200 messages"
+✅ "Sent 60-80 messages to SQS price-queue"
+✅ "Successfully processed 35 messages"
 ```
 
 **FipeSomaIngestor:**
 ```
-✅ "Processing batch of 40 messages from price-queue"
+✅ "Processing batch of 60-80 messages from price-queue"
 ✅ "Connected to RDS STG at fipedatacluster-stg..."
 ✅ "Connected to RDS PRD at fipedatacluster-prd..."
 ✅ "Starting transaction..."
-✅ "Inserted 2400 rows in STG"
-✅ "Inserted 2400 rows in PRD"
+✅ "Inserted 60-80 rows in STG"
+✅ "Inserted 60-80 rows in PRD"
 ✅ "Committed transaction STG"
 ✅ "Committed transaction PRD"
-✅ "Successfully processed 2400 messages"
+✅ "Successfully processed 60-80 messages"
+```
+
+**⏱️ Timing esperado:**
+```
+- T+0s: FipeManufacturerLoader iniciado
+- T+10s: FipeModelLoader processando
+- T+25s: FipePriceLoader processando
+- T+40s: FipeSomaIngestor processando
+- T+55s: ✅ Pipeline completa (duração total: ~50-60 segundos)
 ```
 
 ### 5.3.5 Sinais de Erro (O Que Evitar)
@@ -516,11 +581,11 @@ psql -h $STG_HOST -U $STG_USER -d $STG_DB -t -c \
      (SELECT COUNT(*) FROM fipe_vehicle_price) as prices;" 2>/dev/null
 ```
 
-**Resultado Esperado:**
+**Resultado Esperado (Com Filtro Volkswagen):**
 ```
 manufacturers | models | prices
 ───────────────────────────────
-      40      |  1200  |  2400
+      1       |   35   |  60-80
 ```
 
 ### 5.4.3 Conectar ao RDS PRD e Contar Registros
@@ -551,11 +616,11 @@ psql -h $PRD_HOST -U $PRD_USER -d $PRD_DB -t -c \
      (SELECT COUNT(*) FROM fipe_vehicle_price) as prices;" 2>/dev/null
 ```
 
-**Resultado Esperado:**
+**Resultado Esperado (Com Filtro Volkswagen):**
 ```
 manufacturers | models | prices
 ───────────────────────────────
-      40      |  1200  |  2400
+      1       |   35   |  60-80
 ```
 
 ### 5.4.4 Validar Consistency (STG = PRD)

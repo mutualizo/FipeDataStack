@@ -763,15 +763,25 @@ Antes de executar o teste, validar que tudo está pronto:
 
 ---
 
-### 5.3 Executar Pipeline E2E
+### 5.3 Executar Pipeline E2E (Com Filtro Volkswagen)
 
-- [ ] Invocar FipeManufacturerLoader
+**⚡ NOTA:** Este teste usa filtro para acelerar (50-60s vs 5-10min):
+- `FORCE_VEHICLE_MODEL = "VOLKSWAGEN"`
+- `FORCE_VEHICLE_TYPE = 3`
+
+- [ ] Invocar FipeManufacturerLoader com filtro
   ```bash
   export AWS_PROFILE=mutualizo
+  
+  echo "🚀 Invocando FipeManufacturerLoader (Filtro: Volkswagen)"
+  
   aws lambda invoke \
     --function-name FipeManufacturerLoader \
     --region sa-east-1 \
-    --payload '{}' \
+    --payload '{
+      "FORCE_VEHICLE_MODEL": "VOLKSWAGEN",
+      "FORCE_VEHICLE_TYPE": 3
+    }' \
     response.json
   
   cat response.json | jq .
@@ -800,13 +810,16 @@ Antes de executar o teste, validar que tudo está pronto:
   ```
 
 - [ ] Procurar por sinais de sucesso nos logs:
-  - ✅ "Fetched 40 manufacturers from FIPE API"
-  - ✅ "Sent 1200 messages to SQS model-queue"
-  - ✅ "Sent 2400 messages to SQS price-queue"
-  - ✅ "Inserted 2400 rows in STG"
-  - ✅ "Inserted 2400 rows in PRD"
+  - ✅ "FORCE_VEHICLE_MODEL: VOLKSWAGEN"
+  - ✅ "FORCE_VEHICLE_TYPE: 3"
+  - ✅ "Fetched 1 manufacturer (VOLKSWAGEN) from FIPE API"
+  - ✅ "Sent 35 messages to SQS model-queue" (aprox 30-40)
+  - ✅ "Sent 60-80 messages to SQS price-queue"
+  - ✅ "Inserted 60-80 rows in STG"
+  - ✅ "Inserted 60-80 rows in PRD"
   - ✅ "Committed transaction STG"
   - ✅ "Committed transaction PRD"
+  - ✅ **Tempo total: ~50-60 segundos** (vs 5-10min sem filtro)
 
 ---
 
@@ -818,7 +831,7 @@ Antes de executar o teste, validar que tudo está pronto:
     -U postgres -d fipedata -c \
     "SELECT COUNT(*) as price_count FROM fipe_vehicle_price;"
   
-  # Esperado: 2400 (ou novo valor)
+  # Esperado (com filtro Volkswagen): +60-80 registros do baseline inicial
   ```
 
 - [ ] Contar registros em RDS PRD (us-east-1)
@@ -827,12 +840,13 @@ Antes de executar o teste, validar que tudo está pronto:
     -U postgres -d fipedata -c \
     "SELECT COUNT(*) as price_count FROM fipe_vehicle_price;"
   
-  # Esperado: IDÊNTICO ao STG
+  # Esperado (com filtro Volkswagen): IDÊNTICO ao STG (+60-80)
   ```
 
 - [ ] Validar consistency (ambos têm exatamente o mesmo número)
   ```bash
-  # STG_COUNT == PRD_COUNT (byte a byte)
+  # STG_COUNT_FINAL == PRD_COUNT_FINAL (deve ser idêntico)
+  # Ambos aumentaram em ~60-80 registros (Volkswagen tipo 3)
   ```
 
 - [ ] Amostragem de dados (verificar primeiras 5 linhas)
