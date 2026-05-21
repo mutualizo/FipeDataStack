@@ -40,6 +40,10 @@ jobs:
       - name: Use Node.js 22
         run: node --version
 
+      - name: Clean Lambda Layer Directories
+        run: |
+          rm -rf lambda-layer fipe_api_layer *.zip
+
       - name: Install Layers for Lambdas
         run: |
           ls -la

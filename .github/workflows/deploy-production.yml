@@ -35,6 +35,10 @@ jobs:
           pip install -r requirements.txt
           npm install -g aws-cdk
 
+      - name: Clean Lambda Layer Directories
+        run: |
+          rm -rf lambda-layer fipe_api_layer *.zip
+
       - name: Install Layers for Lambdas
         run: |
           ls -la
