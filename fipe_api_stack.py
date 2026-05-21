@@ -344,8 +344,6 @@ class FipeApiStack(NestedStack):
             memory_size=512,
             environment=ingestor_env_final,
             vpc=vpc,
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
-            allow_public_subnet=False,
             security_groups=[self.lambda_security_group],
             role=db_lambda_role,
             layers=[lambda_layer],
