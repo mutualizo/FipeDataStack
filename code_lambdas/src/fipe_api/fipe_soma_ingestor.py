@@ -298,11 +298,25 @@ def process_message(conn_stg, conn_prd, record):
             manufacturer_id_stg = get_or_create_manufacturer(conn_stg, data['manufacturer'], data['manufacturer_code'], data['vehicle_type'])
             manufacturer_id_prd = get_or_create_manufacturer(conn_prd, data['manufacturer'], data['manufacturer_code'], data['vehicle_type'])
 
+            # Validar consistência de IDs entre STG e PRD
+            if manufacturer_id_stg != manufacturer_id_prd:
+                logger.error(f"INGESTOR - IDs inconsistentes de fabricante: STG={manufacturer_id_stg}, PRD={manufacturer_id_prd} (msg {message_id}). Rollback.")
+                conn_stg.rollback()
+                conn_prd.rollback()
+                return False
+
             data['manufacturer_id'] = manufacturer_id_stg
             model_id_stg = get_or_create_model(conn_stg, data['model'], data['model_code'], manufacturer_id_stg)
 
             data['manufacturer_id'] = manufacturer_id_prd
             model_id_prd = get_or_create_model(conn_prd, data['model'], data['model_code'], manufacturer_id_prd)
+
+            # Validar consistência de IDs de modelo
+            if model_id_stg != model_id_prd:
+                logger.error(f"INGESTOR - IDs inconsistentes de modelo: STG={model_id_stg}, PRD={model_id_prd} (msg {message_id}). Rollback.")
+                conn_stg.rollback()
+                conn_prd.rollback()
+                return False
 
             # Restaurar manufacturer_id para STG
             data['manufacturer_id'] = manufacturer_id_stg

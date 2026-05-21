@@ -70,10 +70,28 @@ class FipeApiStack(NestedStack):
             self, "FipeApiLambdaRole",  # Sem sufixo
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSQSFullAccess")
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole")
             ]
         )
+
+        # Adicionar SQS permissions específicas (least privilege)
+        lambda_role.add_to_policy(iam.PolicyStatement(
+            actions=[
+                "sqs:SendMessage",
+                "sqs:ReceiveMessage",
+                "sqs:DeleteMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:ChangeMessageVisibility"
+            ],
+            resources=[
+                manufacturer_queue.queue_arn,
+                model_queue.queue_arn,
+                price_queue.queue_arn,
+                manufacturer_dlq.queue_arn,
+                model_dlq.queue_arn,
+                price_dlq.queue_arn
+            ]
+        ))
 
         # IAM Role para Lambdas com acesso a RDS (sem sufixo de stage)
         db_lambda_role = iam.Role(
@@ -86,10 +104,14 @@ class FipeApiStack(NestedStack):
             ]
         )
 
-        # Adicionar acesso IAM para RDS authentication
+        # Adicionar acesso IAM para RDS authentication (especificar clusters, não wildcard)
+        # RDS STG em us-east-2 e RDS PRD em us-east-1
         db_lambda_role.add_to_policy(iam.PolicyStatement(
             actions=["rds-db:connect"],
-            resources=["arn:aws:rds:*:*:db/*"]
+            resources=[
+                f"arn:aws:rds:us-east-2:*:db:fipedatacluster-stg",
+                f"arn:aws:rds:us-east-1:*:db:fipedatacluster-prd"
+            ]
         ))
 
         Tags.of(lambda_role).add("stage", stage)
@@ -100,13 +122,14 @@ class FipeApiStack(NestedStack):
         # SQS Queues (sem sufixo de stage - Standard)
         # ====================================================================
 
-        # DLQs (Dead Letter Queues)
+        # DLQs (Dead Letter Queues) - com KMS encryption
         manufacturer_dlq = sqs.Queue(
             self,
             "FipeManufacturerDLQ",  # Sem sufixo
             visibility_timeout=Duration.seconds(600),
             retention_period=Duration.days(14),
-            queue_name="fipe-manufacturer-dlq"
+            queue_name="fipe-manufacturer-dlq",
+            encryption=sqs.SqsEncryption.KMS_MANAGED
         )
         Tags.of(manufacturer_dlq).add("stage", stage)
 
@@ -115,7 +138,8 @@ class FipeApiStack(NestedStack):
             "FipeModelDLQ",  # Sem sufixo
             visibility_timeout=Duration.seconds(600),
             retention_period=Duration.days(14),
-            queue_name="fipe-model-dlq"
+            queue_name="fipe-model-dlq",
+            encryption=sqs.SqsEncryption.KMS_MANAGED
         )
         Tags.of(model_dlq).add("stage", stage)
 
@@ -124,11 +148,12 @@ class FipeApiStack(NestedStack):
             "FipePriceDLQ",  # Sem sufixo
             visibility_timeout=Duration.seconds(600),
             retention_period=Duration.days(14),
-            queue_name="fipe-price-dlq"
+            queue_name="fipe-price-dlq",
+            encryption=sqs.SqsEncryption.KMS_MANAGED
         )
         Tags.of(price_dlq).add("stage", stage)
 
-        # Main Queues (com DLQ)
+        # Main Queues (com DLQ e KMS encryption)
         manufacturer_queue = sqs.Queue(
             self,
             "FipeManufacturerQueue",  # Sem sufixo
@@ -138,7 +163,8 @@ class FipeApiStack(NestedStack):
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=10,
                 queue=manufacturer_dlq
-            )
+            ),
+            encryption=sqs.SqsEncryption.KMS_MANAGED
         )
         Tags.of(manufacturer_queue).add("stage", stage)
         print(f"[FipeApiStack] Fila Manufacturer criada: {manufacturer_queue.queue_name}")
@@ -152,7 +178,8 @@ class FipeApiStack(NestedStack):
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=10,
                 queue=model_dlq
-            )
+            ),
+            encryption=sqs.SqsEncryption.KMS_MANAGED
         )
         Tags.of(model_queue).add("stage", stage)
         print(f"[FipeApiStack] Fila Model criada: {model_queue.queue_name}")
@@ -166,7 +193,8 @@ class FipeApiStack(NestedStack):
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=10,
                 queue=price_dlq
-            )
+            ),
+            encryption=sqs.SqsEncryption.KMS_MANAGED
         )
         Tags.of(price_queue).add("stage", stage)
         print(f"[FipeApiStack] Fila Price criada: {price_queue.queue_name}")
@@ -315,8 +343,8 @@ class FipeApiStack(NestedStack):
             memory_size=512,
             environment=ingestor_env_final,
             vpc=vpc,
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
-            allow_public_subnet=True,
+            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
+            allow_public_subnet=False,
             security_groups=[self.lambda_security_group],
             role=db_lambda_role,
             layers=[lambda_layer],
