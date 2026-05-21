@@ -22,7 +22,7 @@ echo "=== Criando camada Lambda otimizada para FipeApiStack ==="
 # Definir diretórios e arquivos
 LAYER_DIR="fipe_api_layer/python/lib/python3.12/site-packages"
 ZIP_FILE="fipe_api_layer.zip"
-REQUIRED_PACKAGES="boto3 requests psycopg2-binary pydantic"
+REQUIREMENTS_FILE="fipe_api_layer/requirements.txt"
 
 # Criar estrutura de diretórios
 mkdir -p "$LAYER_DIR"
@@ -31,9 +31,9 @@ mkdir -p "$LAYER_DIR"
 echo "Limpando diretório anterior..."
 rm -rf "$LAYER_DIR"/*
 
-# Instalar apenas as dependências essenciais
-echo "Instalando pacotes essenciais: $REQUIRED_PACKAGES"
-pip install $REQUIRED_PACKAGES -t "$LAYER_DIR"
+# Instalar dependências do requirements.txt
+echo "Instalando pacotes do $REQUIREMENTS_FILE..."
+pip install -r "$REQUIREMENTS_FILE" -t "$LAYER_DIR"
 
 # Remover arquivos desnecessários para reduzir o tamanho
 echo "Otimizando o tamanho da camada..."

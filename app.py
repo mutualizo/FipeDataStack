@@ -67,6 +67,15 @@ else:
         )
         sts_client = boto3.client('sts')
         aws_account = sts_client.get_caller_identity().get('Account')
+    else:
+        # Tentar obter conta AWS via AWS CLI
+        try:
+            sts_client = boto3.client('sts', region_name=aws_region)
+            aws_account = sts_client.get_caller_identity().get('Account')
+        except Exception as e:
+            print(f"Erro ao obter conta AWS: {str(e)}")
+            print("Verifique se suas credenciais AWS estão configuradas.")
+            sys.exit(1)
 
 
 print(f"Região AWS: {aws_region}")
