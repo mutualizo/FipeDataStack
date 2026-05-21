@@ -61,45 +61,52 @@ print()
 # AUTENTICAÇÃO AWS
 # ============================================================================
 
-# Obter perfil AWS (default: mutualizo)
-aws_profile = os.environ.get('AWS_PROFILE', 'mutualizo')
+# Estratégia de autenticação AWS
+aws_profile = os.environ.get('AWS_PROFILE')  # Sem default
+aws_account = None
 
+# 1. Tentar usar perfil AWS se definido
 if aws_profile:
-    print(f"Usando perfil AWS: {aws_profile}")
+    print(f"Tentando usar perfil AWS: {aws_profile}")
     try:
         session = boto3.Session(profile_name=aws_profile)
         aws_account = session.client('sts').get_caller_identity().get('Account')
-
-        if not aws_account:
-            raise ValueError("Não foi possível obter a conta AWS")
-
-        print(f"Conta AWS: {aws_account}")
-
-    except ClientError as e:
-        print(f"❌ Erro ao obter conta AWS: {str(e)}")
-        sys.exit(1)
+        if aws_account:
+            print(f"✅ Autenticação com perfil AWS bem-sucedida")
+            print(f"Conta AWS: {aws_account}")
     except Exception as e:
-        print(f"❌ Erro ao usar perfil AWS '{aws_profile}': {str(e)}")
-        sys.exit(1)
-else:
-    # Usar variáveis de ambiente para credenciais
+        print(f"⚠️  Perfil AWS '{aws_profile}' falhou: {str(e)}")
+        print("Tentando variáveis de ambiente...")
+        aws_profile = None  # Tentar env vars
+
+# 2. Fallback: usar variáveis de ambiente
+if not aws_profile or not aws_account:
     aws_access_key_id = os.environ.get('AWS_ACCESS_KEY_ID')
     aws_secret_access_key = os.environ.get('AWS_SECRET_ACCESS_KEY')
 
     if aws_access_key_id and aws_secret_access_key:
-        print("Usando credenciais AWS das variáveis de ambiente")
+        print("✅ Usando credenciais AWS das variáveis de ambiente")
         boto3.setup_default_session(
             aws_access_key_id=aws_access_key_id,
             aws_secret_access_key=aws_secret_access_key,
             region_name=TARGET_REGION
         )
-        sts_client = boto3.client('sts')
-        aws_account = sts_client.get_caller_identity().get('Account')
-        print(f"Conta AWS: {aws_account}")
+        try:
+            sts_client = boto3.client('sts')
+            aws_account = sts_client.get_caller_identity().get('Account')
+            print(f"Conta AWS: {aws_account}")
+        except Exception as e:
+            print(f"❌ Erro ao obter conta AWS: {str(e)}")
+            sys.exit(1)
     else:
-        print("❌ AWS_PROFILE não definido e credenciais de ambiente não encontradas")
-        print("Por favor, defina AWS_PROFILE ou AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY")
+        print("❌ Nenhum método de autenticação disponível")
+        print("Defina AWS_PROFILE ou AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY")
         sys.exit(1)
+
+# Validar
+if not aws_account:
+    print("❌ Não foi possível obter a conta AWS")
+    sys.exit(1)
 
 # ============================================================================
 # CRIAR CDK APP E STACK
