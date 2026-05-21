@@ -111,7 +111,7 @@ class FipeApiStack(NestedStack):
             visibility_timeout=Duration.seconds(600),
             retention_period=Duration.days(14),
             queue_name="fipe-manufacturer-dlq",
-            encryption=sqs.SqsEncryption.KMS_MANAGED
+            encryption=sqs.QueueEncryption.KMS_MANAGED
         )
         Tags.of(manufacturer_dlq).add("stage", stage)
 
@@ -121,7 +121,7 @@ class FipeApiStack(NestedStack):
             visibility_timeout=Duration.seconds(600),
             retention_period=Duration.days(14),
             queue_name="fipe-model-dlq",
-            encryption=sqs.SqsEncryption.KMS_MANAGED
+            encryption=sqs.QueueEncryption.KMS_MANAGED
         )
         Tags.of(model_dlq).add("stage", stage)
 
@@ -131,7 +131,7 @@ class FipeApiStack(NestedStack):
             visibility_timeout=Duration.seconds(600),
             retention_period=Duration.days(14),
             queue_name="fipe-price-dlq",
-            encryption=sqs.SqsEncryption.KMS_MANAGED
+            encryption=sqs.QueueEncryption.KMS_MANAGED
         )
         Tags.of(price_dlq).add("stage", stage)
 
@@ -146,7 +146,7 @@ class FipeApiStack(NestedStack):
                 max_receive_count=10,
                 queue=manufacturer_dlq
             ),
-            encryption=sqs.SqsEncryption.KMS_MANAGED
+            encryption=sqs.QueueEncryption.KMS_MANAGED
         )
         Tags.of(manufacturer_queue).add("stage", stage)
         print(f"[FipeApiStack] Fila Manufacturer criada: {manufacturer_queue.queue_name}")
@@ -161,7 +161,7 @@ class FipeApiStack(NestedStack):
                 max_receive_count=10,
                 queue=model_dlq
             ),
-            encryption=sqs.SqsEncryption.KMS_MANAGED
+            encryption=sqs.QueueEncryption.KMS_MANAGED
         )
         Tags.of(model_queue).add("stage", stage)
         print(f"[FipeApiStack] Fila Model criada: {model_queue.queue_name}")
@@ -176,7 +176,7 @@ class FipeApiStack(NestedStack):
                 max_receive_count=10,
                 queue=price_dlq
             ),
-            encryption=sqs.SqsEncryption.KMS_MANAGED
+            encryption=sqs.QueueEncryption.KMS_MANAGED
         )
         Tags.of(price_queue).add("stage", stage)
         print(f"[FipeApiStack] Fila Price criada: {price_queue.queue_name}")
