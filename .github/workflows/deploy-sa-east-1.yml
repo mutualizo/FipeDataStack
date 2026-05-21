@@ -1,0 +1,64 @@
+name: Deploy CDK Stack - sa-east-1 (Consolidated)
+
+on:
+  workflow_dispatch:  # Executa somente quando acionada manualmente
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: development  # Usa environment development para credenciais e variáveis
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: sa-east-1  # Região fixa: sa-east-1
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          npm install -g aws-cdk
+
+      - name: Build Lambda layers
+        run: |
+          chmod +x ./create-fipe-api-layer.sh
+          ./create-fipe-api-layer.sh
+
+      - name: Bootstrap CDK Environment
+        run: |
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          cdk bootstrap aws://${AWS_ACCOUNT_ID}/sa-east-1
+        env:
+          AWS_REGION: sa-east-1
+
+      - name: Deploy unified stack to sa-east-1
+        run: |
+          cdk deploy \
+            --context vpc_id=${{ vars.VPC_ID_SA_EAST_1 }} \
+            --context allowed_ip=${{ vars.ALLOWED_IP }} \
+            --require-approval never \
+            --verbose
+        env:
+          AWS_REGION: sa-east-1
+          RDS_HOST_STG: ${{ secrets.RDS_HOST_STG }}
+          RDS_HOST_PRD: ${{ secrets.RDS_HOST_PRD }}
+
+      - name: Output stack information
+        if: always()
+        run: |
+          echo "=== Deployment Summary ==="
+          echo "Region: sa-east-1"
+          echo "Stack: FipeDataStack (unified)"
+          echo "Mode: Dual-Write (STG + PRD)"
+          cdk output --json 2>/dev/null || echo "Stack outputs not yet available"
