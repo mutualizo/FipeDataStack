@@ -59,7 +59,7 @@ As seguintes melhorias foram implementadas para garantir robustez e manutenibili
 
 - [AWS CLI](https://aws.amazon.com/cli/) configurado com credenciais adequadas
 - [Node.js](https://nodejs.org/) (≥ 12.x)
-- [Python](https://www.python.org/) (≥ 3.10)
+- [Python](https://www.python.org/) (≥ 3.12)
 - [AWS CDK](https://aws.amazon.com/cdk/) instalado globalmente: `npm install -g aws-cdk`
 - [Docker](https://www.docker.com/) (para construir a camada Lambda com psycopg2)
 
@@ -168,12 +168,12 @@ fipe-data-cdk/
    Ou manualmente:
    ```bash
    # Preparar a camada para psycopg2
-   mkdir -p lambda-layer/python/lib/python3.10/site-packages
-   pip install psycopg2-binary -t lambda-layer/python/lib/python3.10/site-packages
+   mkdir -p lambda-layer/python/lib/python3.12/site-packages
+   pip install psycopg2-binary -t lambda-layer/python/lib/python3.12/site-packages
    
    # Preparar a camada para API FIPE
-   mkdir -p fipe_api_layer/python/lib/python3.10/site-packages
-   pip install -r requirements.txt -t fipe_api_layer/python/lib/python3.10/site-packages
+   mkdir -p fipe_api_layer/python/lib/python3.12/site-packages
+   pip install -r requirements.txt -t fipe_api_layer/python/lib/python3.12/site-packages
    
    # Preparar o código fonte
    mkdir -p src

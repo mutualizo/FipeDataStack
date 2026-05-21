@@ -8,10 +8,10 @@ set -e  # Sair imediatamente se algum comando falhar
 echo "=== Criando camada Lambda otimizada para LambdaLayer ==="
 
 # Criar estrutura de diretórios
-mkdir -p lambda-layer/python/lib/python3.10/site-packages
+mkdir -p lambda-layer/python/lib/python3.12/site-packages
 
 # Instalar apenas as dependências essenciais
-pip install psycopg2-binary -t lambda-layer/python/lib/python3.10/site-packages
+pip install psycopg2-binary -t lambda-layer/python/lib/python3.12/site-packages
 cd lambda-layer
 zip -r ../psycopg2-layer.zip python
 cd ..
@@ -20,7 +20,7 @@ cd ..
 echo "=== Criando camada Lambda otimizada para FipeApiStack ==="
 
 # Definir diretórios e arquivos
-LAYER_DIR="fipe_api_layer/python/lib/python3.10/site-packages"
+LAYER_DIR="fipe_api_layer/python/lib/python3.12/site-packages"
 ZIP_FILE="fipe_api_layer.zip"
 REQUIRED_PACKAGES="boto3 requests psycopg2-binary pydantic"
 
@@ -66,7 +66,7 @@ echo "1. Acesse o console AWS Lambda"
 echo "2. Vá para 'Layers' e clique em 'Create layer'"
 echo "3. Dê um nome à camada (ex: 'fipe-api-layer')"
 echo "4. Faça upload do arquivo $ZIP_FILE"
-echo "5. Escolha runtime compatível: Python 3.10"
+echo "5. Escolha runtime compatível: Python 3.12"
 echo "6. Clique em 'Create'"
 echo ""
 echo "Para referenciar a camada em seu CDK:"

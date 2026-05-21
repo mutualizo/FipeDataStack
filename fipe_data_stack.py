@@ -136,14 +136,14 @@ class FipeDataStack(Stack):
         psycopg2_layer = lambda_.LayerVersion(
             self, f"Psycopg2Layer-{stage}",
             code=lambda_.Code.from_asset("lambda-layer"),
-            compatible_runtimes=[lambda_.Runtime.PYTHON_3_10],
+            compatible_runtimes=[lambda_.Runtime.PYTHON_3_12],
             description=f"Layer with psycopg2 for PostgreSQL connectivity - {stage}"
         )
         Tags.of(psycopg2_layer).add("stage", stage)
 
         sql_execution_lambda = lambda_.Function(
             self, f"SQLExecutionLambda-{stage}",
-            runtime=lambda_.Runtime.PYTHON_3_10,
+            runtime=lambda_.Runtime.PYTHON_3_12,
             handler="index.handler",
             code=lambda_.Code.from_asset("lambda"),
             timeout=Duration.minutes(15),

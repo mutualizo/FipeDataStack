@@ -8,8 +8,8 @@ ALLOWED_IP ?=
 
 # Caminhos
 VENV_DIR = .venv
-LAMBDA_LAYER_DIR = lambda-layer/python/lib/python3.10/site-packages
-FIPE_API_LAYER_DIR = fipe_api_layer/python/lib/python3.10/site-packages
+LAMBDA_LAYER_DIR = lambda-layer/python/lib/python3.12/site-packages
+FIPE_API_LAYER_DIR = fipe_api_layer/python/lib/python3.12/site-packages
 SRC_DIR = src
 
 # Verificação de variáveis obrigatórias
