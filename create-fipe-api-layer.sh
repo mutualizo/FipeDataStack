@@ -11,7 +11,7 @@ echo "=== Criando camada Lambda otimizada para LambdaLayer ==="
 mkdir -p lambda-layer/python/lib/python3.12/site-packages
 
 # Instalar apenas as dependências essenciais
-./venv/bin/pip install psycopg2-binary -t lambda-layer/python/lib/python3.12/site-packages
+pip install psycopg2-binary -t lambda-layer/python/lib/python3.12/site-packages
 cd lambda-layer
 zip -r ../psycopg2-layer.zip python
 cd ..
@@ -33,7 +33,7 @@ rm -rf "$LAYER_DIR"/*
 
 # Instalar apenas as dependências essenciais
 echo "Instalando pacotes essenciais: $REQUIRED_PACKAGES"
-./venv/bin/pip install $REQUIRED_PACKAGES -t "$LAYER_DIR"
+pip install $REQUIRED_PACKAGES -t "$LAYER_DIR"
 
 # Remover arquivos desnecessários para reduzir o tamanho
 echo "Otimizando o tamanho da camada..."
