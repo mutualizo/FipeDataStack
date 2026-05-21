@@ -38,10 +38,13 @@ jobs:
       - name: Bootstrap CDK Environment
         run: |
           AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          cdk bootstrap aws://${AWS_ACCOUNT_ID}/sa-east-1
+          cdk bootstrap aws://${AWS_ACCOUNT_ID}/sa-east-1 \
+            --context vpc_id=${{ vars.VPC_ID_SA_EAST_1 }} \
+            --context allowed_ip=${{ vars.ALLOWED_IP }}
         env:
           AWS_REGION: sa-east-1
-          CDKPYTHON: python
+          RDS_HOST_STG: ${{ secrets.RDS_HOST_STG }}
+          RDS_HOST_PRD: ${{ secrets.RDS_HOST_PRD }}
 
       - name: Deploy unified stack to sa-east-1
         run: |
