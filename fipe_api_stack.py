@@ -1,6 +1,7 @@
 # fipe_api_stack.py
 
 import os
+from pathlib import Path
 from constructs import Construct
 from aws_cdk import (
     Stack,
@@ -30,6 +31,7 @@ class FipeApiStack(NestedStack):
         db_secret_arn: str,
         stage: str = "dev",
         rds_endpoints: dict = None,
+        rds_secrets_arns: dict = None,
         **kwargs
     ) -> None:
         """
@@ -38,8 +40,12 @@ class FipeApiStack(NestedStack):
         Args:
             rds_endpoints: Dict com endpoints remotos {"stg": "...", "prd": "..."}
                           Usado para FipeSomaIngestor fazer dual-write
+            rds_secrets_arns: Dict com ARNs das secrets {"stg": "...", "prd": "..."}
+                            Usado para dual-write com senhas diferentes
         """
         super().__init__(scope, construct_id, **kwargs)
+
+        script_dir = os.path.dirname(os.path.realpath(__file__))
 
         Tags.of(self).add("stage", stage)
         Tags.of(self).add("application", "FipeAPI")
@@ -80,29 +86,18 @@ class FipeApiStack(NestedStack):
             ]
         )
 
-        # Adicionar acesso a Secrets Manager para RDS
-        if db_secret_arn:
-            db_lambda_role.add_to_policy(iam.PolicyStatement(
-                actions=["secretsmanager:GetSecretValue"],
-                resources=[db_secret_arn]
-            ))
+        # Adicionar acesso IAM para RDS authentication
+        db_lambda_role.add_to_policy(iam.PolicyStatement(
+            actions=["rds-db:connect"],
+            resources=["arn:aws:rds:*:*:db/*"]
+        ))
 
         Tags.of(lambda_role).add("stage", stage)
         Tags.of(db_lambda_role).add("stage", stage)
-        print(f"[FipeApiStack] Roles criadas")
-
-        # Importar Secret Manager se houver
-        if db_secret_arn:
-            secret_name = db_secret_arn.split(':')[-1]
-            db_secret = secretsmanager.Secret.from_secret_name_v2(
-                self, "ImportedDBSecret",  # Sem sufixo
-                secret_name
-            )
-            db_secret.grant_read(db_lambda_role)
-            print(f"[FipeApiStack] Permissão de Secrets Manager concedida")
+        print(f"[FipeApiStack] Roles criadas com IAM RDS auth")
 
         # ====================================================================
-        # SQS Queues (sem sufixo de stage - FIFO)
+        # SQS Queues (sem sufixo de stage - Standard)
         # ====================================================================
 
         # DLQs (Dead Letter Queues)
@@ -111,9 +106,7 @@ class FipeApiStack(NestedStack):
             "FipeManufacturerDLQ",  # Sem sufixo
             visibility_timeout=Duration.seconds(600),
             retention_period=Duration.days(14),
-            queue_name="fipe-manufacturer-dlq.fifo",  # FIFO
-            fifo=True,
-            content_based_deduplication=True
+            queue_name="fipe-manufacturer-dlq"
         )
         Tags.of(manufacturer_dlq).add("stage", stage)
 
@@ -122,9 +115,7 @@ class FipeApiStack(NestedStack):
             "FipeModelDLQ",  # Sem sufixo
             visibility_timeout=Duration.seconds(600),
             retention_period=Duration.days(14),
-            queue_name="fipe-model-dlq.fifo",  # FIFO
-            fifo=True,
-            content_based_deduplication=True
+            queue_name="fipe-model-dlq"
         )
         Tags.of(model_dlq).add("stage", stage)
 
@@ -133,9 +124,7 @@ class FipeApiStack(NestedStack):
             "FipePriceDLQ",  # Sem sufixo
             visibility_timeout=Duration.seconds(600),
             retention_period=Duration.days(14),
-            queue_name="fipe-price-dlq.fifo",  # FIFO
-            fifo=True,
-            content_based_deduplication=True
+            queue_name="fipe-price-dlq"
         )
         Tags.of(price_dlq).add("stage", stage)
 
@@ -145,9 +134,7 @@ class FipeApiStack(NestedStack):
             "FipeManufacturerQueue",  # Sem sufixo
             visibility_timeout=Duration.seconds(1000),
             retention_period=Duration.days(4),
-            queue_name="fipe-manufacturer-queue.fifo",  # FIFO
-            fifo=True,
-            content_based_deduplication=True,
+            queue_name="fipe-manufacturer-queue",
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=10,
                 queue=manufacturer_dlq
@@ -161,9 +148,7 @@ class FipeApiStack(NestedStack):
             "FipeModelQueue",  # Sem sufixo
             visibility_timeout=Duration.seconds(1000),
             retention_period=Duration.days(4),
-            queue_name="fipe-model-queue.fifo",  # FIFO
-            fifo=True,
-            content_based_deduplication=True,
+            queue_name="fipe-model-queue",
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=10,
                 queue=model_dlq
@@ -177,9 +162,7 @@ class FipeApiStack(NestedStack):
             "FipePriceQueue",  # Sem sufixo
             visibility_timeout=Duration.seconds(1000),
             retention_period=Duration.days(4),
-            queue_name="fipe-price-queue.fifo",  # FIFO
-            fifo=True,
-            content_based_deduplication=True,
+            queue_name="fipe-price-queue",
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=10,
                 queue=price_dlq
@@ -192,7 +175,7 @@ class FipeApiStack(NestedStack):
         lambda_layer = lambda_.LayerVersion(
             self,
             "FipeApiLayer",  # Sem sufixo
-            code=lambda_.Code.from_asset("fipe_api_layer.zip"),
+            code=lambda_.Code.from_asset(os.path.join(script_dir, "fipe_api_layer.zip")),
             compatible_runtimes=[lambda_.Runtime.PYTHON_3_12],
             description="Layer for FIPE API Lambda functions"
         )
@@ -214,8 +197,7 @@ class FipeApiStack(NestedStack):
                         "RDS_HOST": db_cluster_endpoint or "remote-rds",
                         "RDS_PORT": db_cluster_port or "5432",
                         "RDS_DATABASE": "fipedata",
-                        "RDS_USER": "postgres",
-                        "DB_SECRET_ARN": db_secret_arn or ""}
+                        "RDS_USER": "postgres"}
         
         # ====================================================================
         # LAMBDAS (sem sufixo de stage)
@@ -228,7 +210,7 @@ class FipeApiStack(NestedStack):
             function_name="FipeManufacturerLoader",  # Sem sufixo
             runtime=lambda_.Runtime.PYTHON_3_12,
             code=lambda_.Code.from_asset(
-                "code_lambdas/src/fipe_api",
+                os.path.join(script_dir, "code_lambdas/src/fipe_api"),
                 exclude=["__pycache__", "*.pyc"]
             ),
             handler="fipe_manufacturer_loader.lambda_handler",
@@ -264,7 +246,7 @@ class FipeApiStack(NestedStack):
             "FipeModelLoader",  # Sem sufixo
             function_name="FipeModelLoader",  # Sem sufixo
             runtime=lambda_.Runtime.PYTHON_3_12,
-            code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]),
+            code=lambda_.Code.from_asset(os.path.join(script_dir, "code_lambdas/src/fipe_api"), exclude=["__pycache__", "*.pyc"]),
             handler="fipe_model_loader.lambda_handler",
             timeout=Duration.minutes(5),
             memory_size=256,
@@ -291,7 +273,7 @@ class FipeApiStack(NestedStack):
             "FipePriceLoader",  # Sem sufixo
             function_name="FipePriceLoader",  # Sem sufixo
             runtime=lambda_.Runtime.PYTHON_3_12,
-            code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]),
+            code=lambda_.Code.from_asset(os.path.join(script_dir, "code_lambdas/src/fipe_api"), exclude=["__pycache__", "*.pyc"]),
             handler="fipe_price_loader.lambda_handler",
             timeout=Duration.minutes(5),
             memory_size=256,
@@ -321,14 +303,15 @@ class FipeApiStack(NestedStack):
             ingestor_env_final["RDS_ENDPOINTS_PRD"] = rds_endpoints.get("prd", "")
             print(f"[FipeApiStack] Ingestor configurado com RDS endpoints remotos para dual-write")
 
+
         ingestor_lambda = lambda_.Function(
             self,
             "FipeSomaIngestor",  # Sem sufixo
             function_name="FipeSomaIngestor",  # Sem sufixo
             runtime=lambda_.Runtime.PYTHON_3_12,
-            code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]),
+            code=lambda_.Code.from_asset(os.path.join(script_dir, "code_lambdas/src/fipe_api"), exclude=["__pycache__", "*.pyc"]),
             handler="fipe_soma_ingestor.lambda_handler",
-            timeout=Duration.minutes(5),
+            timeout=Duration.minutes(15),
             memory_size=512,
             environment=ingestor_env_final,
             vpc=vpc,
@@ -358,7 +341,7 @@ class FipeApiStack(NestedStack):
             function_name="RedriveDLQLambda",  # Sem sufixo
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="fipe_redrive_flq.lambda_handler",
-            code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]),
+            code=lambda_.Code.from_asset(os.path.join(script_dir, "code_lambdas/src/fipe_api"), exclude=["__pycache__", "*.pyc"]),
             role=lambda_role,
             timeout=Duration.seconds(300),
             memory_size=256,

@@ -37,6 +37,18 @@ RDS_ENDPOINTS = {
     )
 }
 
+# RDS Secrets ARNs (para dual-write com senhas diferentes)
+RDS_SECRETS_ARNS = {
+    "stg": os.environ.get(
+        "DB_SECRET_ARN_STG",
+        "arn:aws:secretsmanager:us-east-2:652510808251:secret:FipeDataDBCredentialsstgC4F-hkhpoRdKCAHD-dKKCyY"
+    ),
+    "prd": os.environ.get(
+        "DB_SECRET_ARN_PRD",
+        "arn:aws:secretsmanager:us-east-1:652510808251:secret:FipeDataDBCredentialsprd092-RmQzIGkR41ce-wJyt0E"
+    )
+}
+
 print("=" * 80)
 print("[MELHORIA 2] FipeDataStack - Stack Única em sa-east-1")
 print("=" * 80)
@@ -109,7 +121,8 @@ FipeDataStack(
     env=env,
     stage="unified",  # Identificador interno (não afeta nomes dos recursos)
     create_rds=False,  # Não criar RDS - acessar remotamente
-    rds_endpoints=RDS_ENDPOINTS  # Endpoints dos RDS remotos
+    rds_endpoints=RDS_ENDPOINTS,  # Endpoints dos RDS remotos
+    rds_secrets_arns=RDS_SECRETS_ARNS  # ARNs das secrets para dual-write
 )
 
 print("✅ Stack criada com sucesso")

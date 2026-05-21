@@ -7,19 +7,22 @@ import time
 import psycopg2
 from datetime import datetime
 from psycopg2 import sql
-from get_db_password import get_db_password
+from get_db_password import get_db_auth_token
 
 # Configure logger
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-def get_db_connection(host=None):
-    """Conecta a um banco de dados PostgreSQL.
+def get_db_connection(host=None, max_total_wait=60):
+    """Conecta a um banco de dados PostgreSQL com backoff exponencial.
 
     Args:
         host: Se None, usa RDS_HOST da variável de ambiente (para local/STG)
               Se fornecido, conecta a esse host específico (para dual-write)
+        max_total_wait: Tempo máximo total (segundos) para retry (padrão: 60s)
     """
+    MAX_ATTEMPTS = 6
+
     if host is None:
         host = os.environ.get("RDS_HOST")
 
@@ -30,25 +33,48 @@ def get_db_connection(host=None):
     if not all([host, port, database, user]):
         raise ValueError("Variáveis de ambiente para conexão com o banco de dados não definidas")
 
-    password = get_db_password()
-    logger.info(f"INGESTOR-DBCONECT - Tentando conexão: {host}:{port}/{database} como {user}")
+    logger.info(f"INGESTOR-DBCONECT - Tentando conexão IAM: {host}:{port}/{database} como {user}")
 
     is_connected = False
     attempts = 1
     conn = None
     sleep_vl = 0.5
+    total_waited = 0
+    last_error = None
 
-    while not is_connected and attempts < 8:
+    while not is_connected and total_waited < max_total_wait and attempts <= MAX_ATTEMPTS:
         try:
-            conn = psycopg2.connect(host=host, port=port, dbname=database, user=user, password=password)
+            # Gerar token IAM (válido por 15 minutos)
+            password = get_db_auth_token(host=host, port=port, user=user)
+
+            conn = psycopg2.connect(
+                host=host,
+                port=int(port),
+                dbname=database,
+                user=user,
+                password=password,
+                connect_timeout=10,
+                sslmode='require'
+            )
             is_connected = True
-            logger.info(f"INGESTOR-DBCONECT - Conexão com {host} estabelecida com sucesso")
+            logger.info(f"INGESTOR-DBCONECT - Conexão IAM com {host} estabelecida com sucesso em tentativa {attempts}")
             conn.autocommit = False
         except Exception as e:
-            if attempts < 8:
-                logger.warning(f"INGESTOR-DBCONECT - Erro ao conectar em {host} na tentativa {attempts}: {str(e)}")
-                time.sleep(sleep_vl * attempts)
-        attempts += 1
+            last_error = str(e)
+            wait_time = min(sleep_vl * (2 ** (attempts - 1)), max_total_wait - total_waited)
+            if wait_time > 0:
+                logger.warning(f"INGESTOR-DBCONECT - Erro na tentativa {attempts} ({wait_time:.1f}s espera): {last_error}")
+                time.sleep(wait_time)
+                total_waited += wait_time
+            attempts += 1
+
+    if not is_connected:
+        if attempts > MAX_ATTEMPTS:
+            error_msg = f"Máximo de tentativas ({MAX_ATTEMPTS}) atingidas. Último erro: {last_error}"
+        else:
+            error_msg = f"Timeout ({total_waited}s) ao conectar em {host}. Último erro: {last_error}"
+        logger.error(f"INGESTOR-DBCONECT - {error_msg}")
+        raise ConnectionError(error_msg)
 
     return conn
 
@@ -311,85 +337,62 @@ def process_message(conn_stg, conn_prd, record):
         return False
 
 def lambda_handler(event, context):
-    """Manipulador AWS Lambda para processar mensagens SQS e inserir dados no PostgreSQL.
+    """Manipulador AWS Lambda para processar mensagens SQS com dual-write RDS.
 
-    Suporta dois modos:
-    1. DUAL-WRITE: Se RDS_ENDPOINTS_STG e RDS_ENDPOINTS_PRD estão definidos, escreve em ambos os bancos
-    2. SINGLE: Caso contrário, usa RDS_HOST (modo padrão)
+    OBRIGATÓRIO: RDS_ENDPOINTS_STG e RDS_ENDPOINTS_PRD devem estar definidos.
+    Não suporta modo SINGLE (sempre dual-write).
     """
-    logger.info("INGESTOR - Iniciando FipeSomaIngestor...")
+    logger.info("INGESTOR - Iniciando FipeSomaIngestor (DUAL-WRITE obrigatório)...")
 
-    # Detectar modo de operação
+    # Validar variáveis obrigatórias
     rds_endpoints_stg = os.environ.get("RDS_ENDPOINTS_STG")
     rds_endpoints_prd = os.environ.get("RDS_ENDPOINTS_PRD")
-    is_dual_write = bool(rds_endpoints_stg and rds_endpoints_prd)
 
-    if is_dual_write:
-        logger.info(f"INGESTOR - MODO DUAL-WRITE ativado (STG={rds_endpoints_stg}, PRD={rds_endpoints_prd})")
-    else:
-        logger.info("INGESTOR - MODO SINGLE ativado (usando RDS_HOST)")
+    if not rds_endpoints_stg or not rds_endpoints_prd:
+        error_msg = f"ERRO CRÍTICO: RDS_ENDPOINTS_STG e RDS_ENDPOINTS_PRD são obrigatórios. STG={rds_endpoints_stg}, PRD={rds_endpoints_prd}"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    logger.info(f"INGESTOR - DUAL-WRITE configurado: STG={rds_endpoints_stg}, PRD={rds_endpoints_prd}")
 
     batch_item_failures = []
-    logger.info(f"INGESTOR - Processando {len(event['Records'])} mensagens...")
+    logger.info(f"INGESTOR - Processando {len(event['Records'])} mensagens em DUAL-WRITE...")
 
     for record in event["Records"]:
         success = False
+        conn_stg = None
+        conn_prd = None
+        message_id = record['messageId']
 
-        if is_dual_write:
-            # MODO DUAL-WRITE
-            conn_stg = None
-            conn_prd = None
-            try:
-                conn_stg, conn_prd = get_dual_db_connections()
-                if conn_stg and conn_prd:
-                    success = process_message(conn_stg, conn_prd, record)
-                else:
-                    logger.error(f"INGESTOR - Falha ao obter conexões duais para mensagem {record['messageId']}")
-                    # success permanece False
+        try:
+            # Obter conexões duais (STG e PRD)
+            conn_stg, conn_prd = get_dual_db_connections()
+            if not conn_stg or not conn_prd:
+                logger.error(f"INGESTOR - Falha ao conectar em um dos RDS (msg {message_id})")
+            else:
+                # Processar mensagem com ambas conexões
+                success = process_message(conn_stg, conn_prd, record)
 
-            except Exception as e:
-                logger.error(f"INGESTOR - Erro crítico no loop dual-write (msg {record['messageId']}): {str(e)}")
-                # success permanece False
+        except Exception as e:
+            logger.error(f"INGESTOR - Erro crítico (msg {message_id}): {str(e)}")
 
-            finally:
-                if conn_stg:
-                    try:
-                        conn_stg.close()
-                    except Exception as e:
-                        logger.error(f"INGESTOR - Erro ao fechar conexão STG (msg {record['messageId']}): {str(e)}")
-                if conn_prd:
-                    try:
-                        conn_prd.close()
-                    except Exception as e:
-                        logger.error(f"INGESTOR - Erro ao fechar conexão PRD (msg {record['messageId']}): {str(e)}")
+        finally:
+            # Fechar conexões
+            if conn_stg:
+                try:
+                    conn_stg.close()
+                except Exception as e:
+                    logger.error(f"INGESTOR - Erro ao fechar conexão STG (msg {message_id}): {str(e)}")
+            if conn_prd:
+                try:
+                    conn_prd.close()
+                except Exception as e:
+                    logger.error(f"INGESTOR - Erro ao fechar conexão PRD (msg {message_id}): {str(e)}")
 
-        else:
-            # MODO SINGLE (compatibilidade com ambiente local/dev)
-            conn = None
-            try:
-                conn = get_db_connection()
-                if conn:
-                    # process_message esperaria duas conexões, mas para compatibilidade
-                    # vamos usar a função original com uma única conexão
-                    # Por enquanto, marcamos como sucesso False para avisar que não está em dual-write
-                    logger.warning(f"INGESTOR - Mensagem {record['messageId']} processada em modo SINGLE (não é dual-write)")
-                    success = False
-                else:
-                    logger.error(f"INGESTOR - Falha ao obter conexão com o BD para mensagem {record['messageId']}")
-
-            except Exception as e:
-                logger.error(f"INGESTOR - Erro crítico no loop single (msg {record['messageId']}): {str(e)}")
-
-            finally:
-                if conn:
-                    try:
-                        conn.close()
-                    except Exception as e:
-                        logger.error(f"INGESTOR - Erro ao fechar conexão (msg {record['messageId']}): {str(e)}")
-
-        # Se falhou, adiciona à lista de reprocessamento
+        # Se falhou, adiciona à lista de reprocessamento (vai para DLQ)
         if not success:
-            batch_item_failures.append({"itemIdentifier": record["messageId"]})
+            batch_item_failures.append({"itemIdentifier": message_id})
+            logger.warning(f"INGESTOR - Mensagem {message_id} adicionada ao reprocessamento")
             logger.warning(f"INGESTOR - Mensagem {record['messageId']} marcada para reprocessamento.")
 
     total_failures = len(batch_item_failures)

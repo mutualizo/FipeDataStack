@@ -28,6 +28,7 @@ class FipeDataStack(Stack):
         stage: str = "dev",
         create_rds: bool = True,
         rds_endpoints: dict = None,
+        rds_secrets_arns: dict = None,
         **kwargs
     ) -> None:
         """
@@ -37,6 +38,8 @@ class FipeDataStack(Stack):
             create_rds: Se True, cria novo RDS Aurora. Se False, acessa RDS remoto
             rds_endpoints: Dict com endpoints remotos {"stg": "...", "prd": "..."}
                           Obrigatório quando create_rds=False
+            rds_secrets_arns: Dict com ARNs das secrets {"stg": "...", "prd": "..."}
+                            Usado para dual-write com senhas diferentes
         """
         super().__init__(scope, construct_id, **kwargs)
 
@@ -196,14 +199,14 @@ class FipeDataStack(Stack):
             psycopg2_layer = lambda_.LayerVersion(
                 self, f"Psycopg2Layer-{stage}",
                 code=lambda_.Code.from_asset("lambda-layer"),
-                compatible_runtimes=[lambda_.Runtime.PYTHON_3_10],
+                compatible_runtimes=[lambda_.Runtime.PYTHON_3_12],
                 description=f"Layer with psycopg2 for PostgreSQL connectivity - {stage}"
             )
             Tags.of(psycopg2_layer).add("stage", stage)
 
             sql_execution_lambda = lambda_.Function(
                 self, f"SQLExecutionLambda-{stage}",
-                runtime=lambda_.Runtime.PYTHON_3_10,
+                runtime=lambda_.Runtime.PYTHON_3_12,
                 handler="index.handler",
                 code=lambda_.Code.from_asset("lambda"),
                 timeout=Duration.minutes(15),
@@ -269,7 +272,8 @@ class FipeDataStack(Stack):
             print(f"[FipeDataStack] Usando RDS criado em {stage}")
         else:
             # RDS remoto - usar endpoints fornecidos
-            db_endpoint = rds_endpoints.get(stage)
+            # Quando stage="unified", usar endpoint STG como fallback
+            db_endpoint = rds_endpoints.get(stage) or rds_endpoints.get("stg")
             db_port = "5432"  # PostgreSQL padrão
             db_secret_arn = None  # Sera acessado via Secrets Manager remoto
             print(f"[FipeDataStack] Usando RDS remoto: {db_endpoint}")
@@ -283,7 +287,8 @@ class FipeDataStack(Stack):
             db_cluster_port=db_port,
             db_secret_arn=db_secret_arn,
             stage=stage,
-            rds_endpoints=rds_endpoints if not create_rds else None  # Passar endpoints remotos
+            rds_endpoints=rds_endpoints if not create_rds else None,  # Passar endpoints remotos
+            rds_secrets_arns=rds_secrets_arns if not create_rds else None  # Passar secrets ARNs remotos
         )
 
         # Adicionar regra de segurança apenas se RDS foi criado localmente

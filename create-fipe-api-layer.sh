@@ -8,10 +8,10 @@ set -e  # Sair imediatamente se algum comando falhar
 echo "=== Criando camada Lambda otimizada para LambdaLayer ==="
 
 # Criar estrutura de diretórios
-mkdir -p lambda-layer/python/lib/python3.10/site-packages
+mkdir -p lambda-layer/python/lib/python3.12/site-packages
 
 # Instalar apenas as dependências essenciais
-pip install psycopg2-binary -t lambda-layer/python/lib/python3.10/site-packages
+./venv/bin/pip install psycopg2-binary -t lambda-layer/python/lib/python3.12/site-packages
 cd lambda-layer
 zip -r ../psycopg2-layer.zip python
 cd ..
@@ -20,7 +20,7 @@ cd ..
 echo "=== Criando camada Lambda otimizada para FipeApiStack ==="
 
 # Definir diretórios e arquivos
-LAYER_DIR="fipe_api_layer/python/lib/python3.10/site-packages"
+LAYER_DIR="fipe_api_layer/python/lib/python3.12/site-packages"
 ZIP_FILE="fipe_api_layer.zip"
 REQUIRED_PACKAGES="boto3 requests psycopg2-binary pydantic"
 
@@ -33,7 +33,7 @@ rm -rf "$LAYER_DIR"/*
 
 # Instalar apenas as dependências essenciais
 echo "Instalando pacotes essenciais: $REQUIRED_PACKAGES"
-pip install $REQUIRED_PACKAGES -t "$LAYER_DIR"
+./venv/bin/pip install $REQUIRED_PACKAGES -t "$LAYER_DIR"
 
 # Remover arquivos desnecessários para reduzir o tamanho
 echo "Otimizando o tamanho da camada..."

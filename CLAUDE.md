@@ -16,6 +16,48 @@ The system follows a data pipeline architecture where:
 - Lambda functions are chained via SQS messages: Manufacturers → Models → Prices → Database ingestion
 - Each stage processes and forwards data to the next queue for parallel efficiency
 
+## Communication Protocol
+
+**Before executing any command that may require user authorization (AWS deployments, destructive operations, etc.):**
+1. Provide a brief explanation of what you plan to do
+2. Explain why this action is necessary
+3. Mention any important side effects or changes
+4. Then proceed with the command after getting implicit or explicit approval
+
+This ensures alignment and prevents unexpected actions.
+
+## TODO: RDS IAM Authentication for STG/PRD (via CDK)
+
+**Status:** Manually enabled in sa-east-1. Needs CDK implementation for STG (us-east-2) and PRD (us-east-1).
+
+**What to add to CDK:**
+- Modify RDS clusters in `fipe_data_stack.py` to enable IAM authentication:
+  ```python
+  cluster.enable_iam_authentication = True
+  ```
+- This enables the `rds-db:connect` IAM action for Lambda authentication
+- Benefits: No secrets stored, temporary tokens, improved security
+
+**When to implement:**
+- Add to CDK for both STG and PRD deployments
+- Lambda already supports IAM auth via `get_db_password(use_iam_auth=True, ...)`
+
+## ⚠️ CRITICAL: Python Version Requirement
+
+**All CDK deployments MUST use Python 3.12 from the `venv/` directory, NOT the system Python.**
+
+```bash
+# ✅ CORRECT - Use venv Python 3.12
+./venv/bin/python -m cdk deploy --context vpc_id=vpc-xxxxx --context allowed_ip=1.2.3.4
+
+# ❌ WRONG - Do NOT use system Python 3.10
+python -m cdk deploy --context vpc_id=vpc-xxxxx --context allowed_ip=1.2.3.4
+```
+
+**Reason**: The codebase uses Lambda runtime `PYTHON_3_12` which is only available when deploying with Python 3.12. Using system Python 3.10 causes: `AttributeError: type object 'Runtime' has no attribute 'PYTHON_3_12'`
+
+**All CDK commands** (deploy, destroy, diff, synth) must use `./venv/bin/python` instead of system python.
+
 ## Quick Commands
 
 ```bash
@@ -91,7 +133,9 @@ FipeDataStack2/
 - Example: `FipeDataStack-dev`, `FipeDataStack-stg`, `FipeDataStack-prd`
 
 ### AWS Credentials
-- **Via AWS Profile**: `AWS_PROFILE=profile-name` (credentials from `~/.aws/credentials`)
+- **AWS Profile**: `mutualizo` (use `AWS_PROFILE=mutualizo` for all deployments)
+  - Credentials stored in `~/.aws/credentials` under `[mutualizo]` profile
+  - Example: `AWS_PROFILE=mutualizo cdk deploy ...`
 - **Via Environment Variables**: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` (with `AWS_REGION`)
 - **Context Variables**: `vpc_id` and `allowed_ip` are required for deployment (no defaults)
 
