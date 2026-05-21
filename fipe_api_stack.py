@@ -74,24 +74,6 @@ class FipeApiStack(NestedStack):
             ]
         )
 
-        # Adicionar SQS permissions específicas (least privilege)
-        lambda_role.add_to_policy(iam.PolicyStatement(
-            actions=[
-                "sqs:SendMessage",
-                "sqs:ReceiveMessage",
-                "sqs:DeleteMessage",
-                "sqs:GetQueueAttributes",
-                "sqs:ChangeMessageVisibility"
-            ],
-            resources=[
-                manufacturer_queue.queue_arn,
-                model_queue.queue_arn,
-                price_queue.queue_arn,
-                manufacturer_dlq.queue_arn,
-                model_dlq.queue_arn,
-                price_dlq.queue_arn
-            ]
-        ))
 
         # IAM Role para Lambdas com acesso a RDS (sem sufixo de stage)
         db_lambda_role = iam.Role(
@@ -198,7 +180,26 @@ class FipeApiStack(NestedStack):
         )
         Tags.of(price_queue).add("stage", stage)
         print(f"[FipeApiStack] Fila Price criada: {price_queue.queue_name}")
-        
+
+        # Adicionar SQS permissions específicas após criar as filas (least privilege)
+        lambda_role.add_to_policy(iam.PolicyStatement(
+            actions=[
+                "sqs:SendMessage",
+                "sqs:ReceiveMessage",
+                "sqs:DeleteMessage",
+                "sqs:GetQueueAttributes",
+                "sqs:ChangeMessageVisibility"
+            ],
+            resources=[
+                manufacturer_queue.queue_arn,
+                model_queue.queue_arn,
+                price_queue.queue_arn,
+                manufacturer_dlq.queue_arn,
+                model_dlq.queue_arn,
+                price_dlq.queue_arn
+            ]
+        ))
+
         # Lambda Layer (sem sufixo)
         lambda_layer = lambda_.LayerVersion(
             self,
