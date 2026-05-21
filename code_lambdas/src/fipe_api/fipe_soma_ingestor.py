@@ -98,32 +98,62 @@ def get_dual_db_connections():
     conn_prd = None
 
     try:
+        logger.info(f"INGESTOR-DUALWRITE - Conectando a STG ({rds_endpoints_stg})...")
         conn_stg = get_db_connection(host=rds_endpoints_stg)
-        conn_prd = get_db_connection(host=rds_endpoints_prd)
+        logger.info("INGESTOR-DUALWRITE - Conexão STG estabelecida com sucesso")
 
-        if not conn_stg or not conn_prd:
-            logger.error("INGESTOR-DUALWRITE - Falha ao conectar em um dos bancos")
-            if conn_stg:
-                conn_stg.close()
+        logger.info(f"INGESTOR-DUALWRITE - Conectando a PRD ({rds_endpoints_prd})...")
+        conn_prd = get_db_connection(host=rds_endpoints_prd)
+        logger.info("INGESTOR-DUALWRITE - Conexão PRD estabelecida com sucesso")
+
+        if not conn_stg:
+            logger.error(f"INGESTOR-DUALWRITE - FALHA EM STG: conexão retornou None ({rds_endpoints_stg})")
             if conn_prd:
                 conn_prd.close()
             return None, None
 
-        logger.info("INGESTOR-DUALWRITE - Conexões duais estabelecidas com sucesso")
+        if not conn_prd:
+            logger.error(f"INGESTOR-DUALWRITE - FALHA EM PRD: conexão retornou None ({rds_endpoints_prd})")
+            if conn_stg:
+                conn_stg.close()
+            return None, None
+
+        logger.info("INGESTOR-DUALWRITE - Ambas conexões (STG + PRD) estabelecidas com sucesso")
         return conn_stg, conn_prd
 
-    except Exception as e:
-        logger.error(f"INGESTOR-DUALWRITE - Erro ao obter conexões duais: {str(e)}")
+    except ConnectionError as e:
+        error_str = str(e)
+        if "us-east-2" in error_str or rds_endpoints_stg in error_str:
+            logger.error(f"INGESTOR-DUALWRITE - FALHA EM STG ({rds_endpoints_stg}): {error_str}")
+        elif "us-east-1" in error_str or rds_endpoints_prd in error_str:
+            logger.error(f"INGESTOR-DUALWRITE - FALHA EM PRD ({rds_endpoints_prd}): {error_str}")
+        else:
+            logger.error(f"INGESTOR-DUALWRITE - ERRO DE CONEXÃO: {error_str}")
+
         if conn_stg:
             try:
                 conn_stg.close()
-            except:
-                pass
+            except Exception as close_err:
+                logger.error(f"INGESTOR-DUALWRITE - Erro ao fechar STG: {str(close_err)}")
         if conn_prd:
             try:
                 conn_prd.close()
-            except:
-                pass
+            except Exception as close_err:
+                logger.error(f"INGESTOR-DUALWRITE - Erro ao fechar PRD: {str(close_err)}")
+        return None, None
+
+    except Exception as e:
+        logger.error(f"INGESTOR-DUALWRITE - Erro inesperado ao obter conexões duais: {str(e)}")
+        if conn_stg:
+            try:
+                conn_stg.close()
+            except Exception as close_err:
+                logger.error(f"INGESTOR-DUALWRITE - Erro ao fechar STG: {str(close_err)}")
+        if conn_prd:
+            try:
+                conn_prd.close()
+            except Exception as close_err:
+                logger.error(f"INGESTOR-DUALWRITE - Erro ao fechar PRD: {str(close_err)}")
         return None, None
 
 # ... (funções get_or_create_... e insert_edit_model_value permanecem as mesmas) ...
@@ -229,10 +259,18 @@ def process_message(conn_stg, conn_prd, record):
         record: Mensagem SQS
     """
     message_id = record["messageId"]
+
+    # Validar JSON ANTES de qualquer processamento
+    try:
+        message_body = json.loads(record["body"])
+        logger.info(f"INGESTOR - Mensagem JSON válida: {message_id}")
+    except json.JSONDecodeError as json_err:
+        logger.error(f"INGESTOR - JSON MALFORMADO na mensagem {message_id}: {str(json_err)}")
+        logger.error(f"INGESTOR - Conteúdo inválido: {record.get('body', '')[:200]}...")
+        return False
+
     try:
         logger.info(f"INGESTOR - Processando mensagem: {message_id} (DUAL-WRITE)")
-
-        message_body = json.loads(record["body"])
 
         if message_body.get("tabela_referencia"):
             reference_table = message_body.get("tabela_referencia")
@@ -335,19 +373,25 @@ def process_message(conn_stg, conn_prd, record):
     except (KeyError, json.JSONDecodeError, ValueError) as e:
         logger.error(f"INGESTOR - Erro de dados na mensagem {message_id}: {str(e)}. Corpo: {record.get('body')}")
         try:
+            logger.info(f"INGESTOR - Executando rollback em STG e PRD (msg {message_id})...")
             conn_stg.rollback()
+            logger.info(f"INGESTOR - Rollback STG bem-sucedido (msg {message_id})")
             conn_prd.rollback()
-        except:
-            pass
+            logger.info(f"INGESTOR - Rollback PRD bem-sucedido (msg {message_id})")
+        except Exception as rollback_err:
+            logger.error(f"INGESTOR - ERRO CRÍTICO durante rollback (msg {message_id}): {str(rollback_err)}")
         return False
 
     except Exception as e:
         logger.error(f"INGESTOR - Erro inesperado (mensagem {message_id}): {str(e)}")
         try:
+            logger.info(f"INGESTOR - Executando rollback em STG e PRD (msg {message_id})...")
             conn_stg.rollback()
+            logger.info(f"INGESTOR - Rollback STG bem-sucedido (msg {message_id})")
             conn_prd.rollback()
-        except:
-            pass
+            logger.info(f"INGESTOR - Rollback PRD bem-sucedido (msg {message_id})")
+        except Exception as rollback_err:
+            logger.error(f"INGESTOR - ERRO CRÍTICO durante rollback (msg {message_id}): {str(rollback_err)}")
         return False
 
 def lambda_handler(event, context):

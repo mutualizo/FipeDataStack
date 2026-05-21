@@ -61,8 +61,8 @@ print()
 # AUTENTICAÇÃO AWS
 # ============================================================================
 
-# Obter perfil AWS
-aws_profile = os.environ.get('AWS_PROFILE')
+# Obter perfil AWS (default: mutualizo)
+aws_profile = os.environ.get('AWS_PROFILE', 'mutualizo')
 
 if aws_profile:
     print(f"Usando perfil AWS: {aws_profile}")

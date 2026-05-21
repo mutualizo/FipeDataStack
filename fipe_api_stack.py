@@ -210,7 +210,7 @@ class FipeApiStack(NestedStack):
         Tags.of(lambda_layer).add("stage", stage)
         print(f"[FipeApiStack] Lambda Layer criada")
         
-        common_env = {"STAGE": stage, "URL_FIPE": "http://veiculos.fipe.org.br/api/veiculos"}
+        common_env = {"STAGE": stage, "URL_FIPE": "https://veiculos.fipe.org.br/api/veiculos"}
         manufacturer_loader_env = {**common_env, 
                                    "SQS_OUTPUT_URL": manufacturer_queue.queue_url, 
                                    "TEST": "false"}
