@@ -41,6 +41,7 @@ jobs:
           cdk bootstrap aws://${AWS_ACCOUNT_ID}/sa-east-1
         env:
           AWS_REGION: sa-east-1
+          CDKPYTHON: python
 
       - name: Deploy unified stack to sa-east-1
         run: |
@@ -53,6 +54,7 @@ jobs:
           AWS_REGION: sa-east-1
           RDS_HOST_STG: ${{ secrets.RDS_HOST_STG }}
           RDS_HOST_PRD: ${{ secrets.RDS_HOST_PRD }}
+          CDKPYTHON: python
 
       - name: Output stack information
         if: always()
