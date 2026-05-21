@@ -6,7 +6,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: development  # Usa environment development para credenciais e variáveis
+    environment: multi-region-sa-east-1  # Usa environment multi-region-sa-east-1 para credenciais e variáveis
 
     steps:
       - name: Checkout repository
