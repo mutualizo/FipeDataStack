@@ -42,7 +42,7 @@ jobs:
 
       - name: Clean Lambda Layer Directories
         run: |
-          rm -rf lambda-layer fipe_api_layer *.zip
+          rm -rf lambda-layer/python fipe_api_layer/python *.zip
 
       - name: Install Layers for Lambdas
         run: |
