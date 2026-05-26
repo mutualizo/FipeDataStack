@@ -99,11 +99,8 @@ class FipeDataStack(Stack):
             )
 
         else:
-            # MODO 2: Acessar RDS remoto
-            print(f"[FipeDataStack] Acessando RDS remoto em {stage}")
-
-            if not rds_endpoints:
-                raise ValueError("rds_endpoints obrigatório quando create_rds=False")
+            # MODO 2: Acessar RDS remoto (Ingestor usa SQS forwarding)
+            print(f"[FipeDataStack] Modo RDS remoto em {stage}")
 
             # Security Group apenas para Lambdas
             lambda_security_group = ec2.SecurityGroup(
