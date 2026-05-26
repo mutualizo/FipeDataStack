@@ -28,11 +28,11 @@ TARGET_REGION = "sa-east-1"
 SQS_FORWARDING_URLS = {
     "stg": os.environ.get(
         "SQS_URL_STG",
-        "https://sqs.us-east-2.amazonaws.com/652510808251/soma-fipe-ingestor-stg"
+        "https://sqs.us-east-2.amazonaws.com/652510808251/fipe-price-queue-stg"
     ),
     "prd": os.environ.get(
         "SQS_URL_PRD",
-        "https://sqs.us-east-1.amazonaws.com/652510808251/soma-fipe-ingestor-prd"
+        "https://sqs.us-east-1.amazonaws.com/652510808251/fipe-price-queue-prd"
     )
 }
 
@@ -40,8 +40,8 @@ print("=" * 80)
 print("FipeDataStack - Stack Única em sa-east-1")
 print("=" * 80)
 print(f"Região de Deploy: {TARGET_REGION}")
-print(f"SQS STG (us-east-2): {SQS_FORWARDING_URLS['stg']}")
-print(f"SQS PRD (us-east-1): {SQS_FORWARDING_URLS['prd']}")
+print(f"Fila de Preços STG (us-east-2): {SQS_FORWARDING_URLS['stg']}")
+print(f"Fila de Preços PRD (us-east-1): {SQS_FORWARDING_URLS['prd']}")
 print()
 
 # ============================================================================
