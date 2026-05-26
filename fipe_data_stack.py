@@ -28,18 +28,18 @@ class FipeDataStack(Stack):
         stage: str = "dev",
         create_rds: bool = True,
         rds_endpoints: dict = None,
-        rds_secrets_arns: dict = None,
+        sqs_forwarding_urls: dict = None,
         **kwargs
     ) -> None:
         """
-        MELHORIA 2: Stack com suporte a RDS remoto
+        Stack com suporte a RDS local ou remoto.
 
         Args:
-            create_rds: Se True, cria novo RDS Aurora. Se False, acessa RDS remoto
+            create_rds: Se True, cria novo RDS Aurora. Se False, usa RDS remoto
             rds_endpoints: Dict com endpoints remotos {"stg": "...", "prd": "..."}
                           Obrigatório quando create_rds=False
-            rds_secrets_arns: Dict com ARNs das secrets {"stg": "...", "prd": "..."}
-                            Usado para dual-write com senhas diferentes
+            sqs_forwarding_urls: Dict com URLs SQS para encaminhamento cross-region
+                                 {"stg": "https://sqs...", "prd": "https://sqs..."}
         """
         super().__init__(scope, construct_id, **kwargs)
 
@@ -271,12 +271,14 @@ class FipeDataStack(Stack):
             db_secret_arn = db_credentials.secret_arn
             print(f"[FipeDataStack] Usando RDS criado em {stage}")
         else:
-            # RDS remoto - usar endpoints fornecidos
-            # Quando stage="unified", usar endpoint STG como fallback
-            db_endpoint = rds_endpoints.get(stage) or rds_endpoints.get("stg")
-            db_port = "5432"  # PostgreSQL padrão
-            db_secret_arn = None  # Sera acessado via Secrets Manager remoto
-            print(f"[FipeDataStack] Usando RDS remoto: {db_endpoint}")
+            db_endpoint = None
+            db_port = "5432"
+            db_secret_arn = None
+            print("[FipeDataStack] RDS remoto (ingestor usa SQS forwarding)")
+
+        # Extrair URLs SQS para forwarding cross-region
+        sqs_stg = sqs_forwarding_urls.get("stg") if sqs_forwarding_urls else None
+        sqs_prd = sqs_forwarding_urls.get("prd") if sqs_forwarding_urls else None
 
         # Criar FipeApiStack (sempre cria, com ou sem RDS local)
         fipe_api_stack = FipeApiStack(
@@ -287,8 +289,8 @@ class FipeDataStack(Stack):
             db_cluster_port=db_port,
             db_secret_arn=db_secret_arn,
             stage=stage,
-            rds_endpoints=rds_endpoints if not create_rds else None,  # Passar endpoints remotos
-            rds_secrets_arns=rds_secrets_arns if not create_rds else None  # Passar secrets ARNs remotos
+            sqs_forwarding_stg=sqs_stg,
+            sqs_forwarding_prd=sqs_prd
         )
 
         # Adicionar regra de segurança apenas se RDS foi criado localmente

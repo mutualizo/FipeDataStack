@@ -1,14 +1,11 @@
 # fipe_api_stack.py
 
 import os
-from pathlib import Path
 from constructs import Construct
 from aws_cdk import (
-    Stack,
     NestedStack,
     Duration,
     CfnOutput,
-    RemovalPolicy,
     Tags,
 )
 from aws_cdk import aws_lambda as lambda_
@@ -16,7 +13,6 @@ from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_sqs as sqs
 from aws_cdk import aws_lambda_event_sources as lambda_event_sources
-from aws_cdk import aws_secretsmanager as secretsmanager
 from aws_cdk import aws_events as events
 from aws_cdk import aws_events_targets as targets
 
@@ -30,18 +26,16 @@ class FipeApiStack(NestedStack):
         db_cluster_port: str,
         db_secret_arn: str,
         stage: str = "dev",
-        rds_endpoints: dict = None,
-        rds_secrets_arns: dict = None,
+        sqs_forwarding_stg: str = None,
+        sqs_forwarding_prd: str = None,
         **kwargs
     ) -> None:
         """
-        MELHORIA 2: Stack de Lambdas + SQS única em sa-east-1
+        Stack de Lambdas + SQS única em sa-east-1
 
         Args:
-            rds_endpoints: Dict com endpoints remotos {"stg": "...", "prd": "..."}
-                          Usado para FipeSomaIngestor fazer dual-write
-            rds_secrets_arns: Dict com ARNs das secrets {"stg": "...", "prd": "..."}
-                            Usado para dual-write com senhas diferentes
+            sqs_forwarding_stg: URL da fila SQS STG para encaminhamento cross-region
+            sqs_forwarding_prd: URL da fila SQS PRD para encaminhamento cross-region
         """
         super().__init__(scope, construct_id, **kwargs)
 
@@ -51,9 +45,8 @@ class FipeApiStack(NestedStack):
         Tags.of(self).add("application", "FipeAPI")
 
         print(f"[FipeApiStack] Criando Lambdas + SQS em {stage}")
-        print(f"[FipeApiStack] Endpoint RDS: {db_cluster_endpoint}")
-        if rds_endpoints:
-            print(f"[FipeApiStack] RDS Endpoints remotos: STG={rds_endpoints.get('stg')}, PRD={rds_endpoints.get('prd')}")
+        if sqs_forwarding_stg and sqs_forwarding_prd:
+            print(f"[FipeApiStack] SQS Forwarding: STG={sqs_forwarding_stg}, PRD={sqs_forwarding_prd}")
         
         # Security Group para Lambdas (sem sufixo de stage)
         self.lambda_security_group = ec2.SecurityGroup(
@@ -75,30 +68,8 @@ class FipeApiStack(NestedStack):
         )
 
 
-        # IAM Role para Lambdas com acesso a RDS (sem sufixo de stage)
-        db_lambda_role = iam.Role(
-            self, "FipeApiDBLambdaRole",  # Sem sufixo
-            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
-            managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaVPCAccessExecutionRole"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole"),
-                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSQSFullAccess")
-            ]
-        )
-
-        # Adicionar acesso IAM para RDS authentication (especificar clusters, não wildcard)
-        # RDS STG em us-east-2 e RDS PRD em us-east-1
-        db_lambda_role.add_to_policy(iam.PolicyStatement(
-            actions=["rds-db:connect"],
-            resources=[
-                f"arn:aws:rds:us-east-2:*:db:fipedatacluster-stg",
-                f"arn:aws:rds:us-east-1:*:db:fipedatacluster-prd"
-            ]
-        ))
-
         Tags.of(lambda_role).add("stage", stage)
-        Tags.of(db_lambda_role).add("stage", stage)
-        print(f"[FipeApiStack] Roles criadas com IAM RDS auth")
+        print("[FipeApiStack] Role criada")
 
         # ====================================================================
         # SQS Queues (sem sufixo de stage - Standard)
@@ -200,6 +171,25 @@ class FipeApiStack(NestedStack):
             ]
         ))
 
+        # Permissões SQS cross-region para encaminhamento (STG e PRD)
+        if sqs_forwarding_stg and sqs_forwarding_prd:
+            def _url_to_arn(url):
+                # https://sqs.REGION.amazonaws.com/ACCOUNT/NAME → arn:aws:sqs:REGION:ACCOUNT:NAME
+                parts = url.replace("https://sqs.", "").split("/")
+                region = parts[0].split(".")[0]
+                account = parts[1]
+                name = parts[2]
+                return f"arn:aws:sqs:{region}:{account}:{name}"
+
+            lambda_role.add_to_policy(iam.PolicyStatement(
+                actions=["sqs:SendMessage"],
+                resources=[
+                    _url_to_arn(sqs_forwarding_stg),
+                    _url_to_arn(sqs_forwarding_prd)
+                ]
+            ))
+            print("[FipeApiStack] Permissão SQS cross-region adicionada para STG e PRD")
+
         # Lambda Layer (sem sufixo)
         lambda_layer = lambda_.LayerVersion(
             self,
@@ -209,7 +199,7 @@ class FipeApiStack(NestedStack):
             description="Layer for FIPE API Lambda functions"
         )
         Tags.of(lambda_layer).add("stage", stage)
-        print(f"[FipeApiStack] Lambda Layer criada")
+        print("[FipeApiStack] Lambda Layer criada")
         
         common_env = {"STAGE": stage, "URL_FIPE": "https://veiculos.fipe.org.br/api/veiculos"}
         manufacturer_loader_env = {**common_env, 
@@ -223,10 +213,8 @@ class FipeApiStack(NestedStack):
                             "SQS_OUTPUT_URL": price_queue.queue_url}
         ingestor_env = {**common_env,
                         "SQS_INPUT_URL": price_queue.queue_url,
-                        "RDS_HOST": db_cluster_endpoint or "remote-rds",
-                        "RDS_PORT": db_cluster_port or "5432",
-                        "RDS_DATABASE": "fipedata",
-                        "RDS_USER": "postgres"}
+                        "SQS_URL_STG": sqs_forwarding_stg or "",
+                        "SQS_URL_PRD": sqs_forwarding_prd or ""}
         
         # ====================================================================
         # LAMBDAS (sem sufixo de stage)
@@ -252,7 +240,7 @@ class FipeApiStack(NestedStack):
         )
         Tags.of(manufacturer_lambda).add("stage", stage)
         Tags.of(manufacturer_lambda).add("function", "FipeManufacturerLoader")
-        print(f"[FipeApiStack] Lambda FipeManufacturerLoader criada")
+        print("[FipeApiStack] Lambda FipeManufacturerLoader criada")
 
         # EventBridge Rule para execução mensal (sem sufixo)
         monthly_rule = events.Rule(
@@ -267,7 +255,7 @@ class FipeApiStack(NestedStack):
             principal=iam.ServicePrincipal("events.amazonaws.com"),
             source_arn=monthly_rule.rule_arn
         )
-        print(f"[FipeApiStack] EventBridge Rule criada para execução mensal")
+        print("[FipeApiStack] EventBridge Rule criada para execução mensal")
         
         # 2. FipeModelLoader
         model_lambda = lambda_.Function(
@@ -294,7 +282,7 @@ class FipeApiStack(NestedStack):
                 report_batch_item_failures=True
             )
         )
-        print(f"[FipeApiStack] Lambda FipeModelLoader criada")
+        print("[FipeApiStack] Lambda FipeModelLoader criada")
 
         # 3. FipePriceLoader
         price_lambda = lambda_.Function(
@@ -321,18 +309,9 @@ class FipeApiStack(NestedStack):
                 report_batch_item_failures=True
             )
         )
-        print(f"[FipeApiStack] Lambda FipePriceLoader criada")
+        print("[FipeApiStack] Lambda FipePriceLoader criada")
 
-        # 4. FipeSomaIngestor (com dual-write RDS)
-        # Preparar environment com RDS endpoints remotos
-        ingestor_env_final = ingestor_env.copy()
-        if rds_endpoints:
-            # Adicionar endpoints remotos para dual-write
-            ingestor_env_final["RDS_ENDPOINTS_STG"] = rds_endpoints.get("stg", "")
-            ingestor_env_final["RDS_ENDPOINTS_PRD"] = rds_endpoints.get("prd", "")
-            print(f"[FipeApiStack] Ingestor configurado com RDS endpoints remotos para dual-write")
-
-
+        # 4. FipeSomaIngestor (encaminhamento cross-region via SQS)
         ingestor_lambda = lambda_.Function(
             self,
             "FipeSomaIngestor",  # Sem sufixo
@@ -340,15 +319,12 @@ class FipeApiStack(NestedStack):
             runtime=lambda_.Runtime.PYTHON_3_12,
             code=lambda_.Code.from_asset(os.path.join(script_dir, "code_lambdas/src/fipe_api"), exclude=["__pycache__", "*.pyc"]),
             handler="fipe_soma_ingestor.lambda_handler",
-            timeout=Duration.minutes(15),
-            memory_size=512,
-            environment=ingestor_env_final,
-            vpc=vpc,
-            allow_public_subnet=True,
-            security_groups=[self.lambda_security_group],
-            role=db_lambda_role,
+            timeout=Duration.minutes(2),
+            memory_size=256,
+            environment=ingestor_env,
+            role=lambda_role,
             layers=[lambda_layer],
-            description="FIPE - 04) Função para ingerir dados da FIPE no banco de dados",
+            description="FIPE - 04) Encaminha mensagens para filas SQS STG e PRD",
             reserved_concurrent_executions=20
         )
         Tags.of(ingestor_lambda).add("stage", stage)
@@ -360,7 +336,7 @@ class FipeApiStack(NestedStack):
                 report_batch_item_failures=True
             )
         )
-        print(f"[FipeApiStack] Lambda FipeSomaIngestor criada")
+        print("[FipeApiStack] Lambda FipeSomaIngestor criada")
 
         print("Criando função RedriveLambda...")
         redrive_lambda = lambda_.Function(
@@ -394,4 +370,4 @@ class FipeApiStack(NestedStack):
         CfnOutput(self, "FipeManufacturerLambda", value=manufacturer_lambda.function_name, description="Nome da função Lambda para carregamento de fabricantes")
         CfnOutput(self, "MonthlyEventRuleArn", value=monthly_rule.rule_arn, description="ARN da regra CloudWatch Events para execução mensal")
 
-        print(f"[FipeApiStack] Criação concluída com sucesso")
+        print("[FipeApiStack] Criação concluída com sucesso")

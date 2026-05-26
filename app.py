@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
 """
-MELHORIA 2: Stack Única em sa-east-1 com Dual-Write RDS
+Stack Única em sa-east-1 com Encaminhamento SQS Cross-Region
 
 Arquitetura Consolidada:
 - 1 Stack em sa-east-1 (FipeDataStack, FipeApiStack)
 - 4 Lambdas: FipeManufacturerLoader, FipeModelLoader, FipePriceLoader, FipeSomaIngestor
-- 3 SQS Queues: manufacturer, model, price (FIFO)
-- RDS em us-east-2 (STG) e us-east-1 (PRD) recebem dual-write
+- 3 SQS Queues: manufacturer, model, price
+- FipeSomaIngestor encaminha mensagens para soma-fipe-ingestor-stg (us-east-2)
+  e soma-fipe-ingestor-prd (us-east-1), consumidas pelas stacks STG/PRD existentes
 """
 
 import os
 import sys
-import json
 import boto3
 from aws_cdk import App, Environment
-from botocore.exceptions import ClientError
 
 from fipe_data_stack import FipeDataStack
 
@@ -25,36 +24,24 @@ from fipe_data_stack import FipeDataStack
 # Região fixa para stack única (consolida tudo em sa-east-1)
 TARGET_REGION = "sa-east-1"
 
-# RDS endpoints (acessados remotamente, não criados nesta stack)
-RDS_ENDPOINTS = {
+# URLs das filas SQS de ingestão nas stacks STG e PRD (encaminhamento cross-region)
+SQS_FORWARDING_URLS = {
     "stg": os.environ.get(
-        "RDS_HOST_STG",
-        "fipedatacluster-stg.cluster-cdqeius2qmwf.us-east-2.rds.amazonaws.com"
+        "SQS_URL_STG",
+        "https://sqs.us-east-2.amazonaws.com/652510808251/soma-fipe-ingestor-stg"
     ),
     "prd": os.environ.get(
-        "RDS_HOST_PRD",
-        "fipedatacluster-prd.cluster-chkg2mxlx9z0.us-east-1.rds.amazonaws.com"
-    )
-}
-
-# RDS Secrets ARNs (para dual-write com senhas diferentes)
-RDS_SECRETS_ARNS = {
-    "stg": os.environ.get(
-        "DB_SECRET_ARN_STG",
-        "arn:aws:secretsmanager:us-east-2:652510808251:secret:FipeDataDBCredentialsstgC4F-hkhpoRdKCAHD-dKKCyY"
-    ),
-    "prd": os.environ.get(
-        "DB_SECRET_ARN_PRD",
-        "arn:aws:secretsmanager:us-east-1:652510808251:secret:FipeDataDBCredentialsprd092-RmQzIGkR41ce-wJyt0E"
+        "SQS_URL_PRD",
+        "https://sqs.us-east-1.amazonaws.com/652510808251/soma-fipe-ingestor-prd"
     )
 }
 
 print("=" * 80)
-print("[MELHORIA 2] FipeDataStack - Stack Única em sa-east-1")
+print("FipeDataStack - Stack Única em sa-east-1")
 print("=" * 80)
 print(f"Região de Deploy: {TARGET_REGION}")
-print(f"RDS STG (us-east-2): {RDS_ENDPOINTS['stg']}")
-print(f"RDS PRD (us-east-1): {RDS_ENDPOINTS['prd']}")
+print(f"SQS STG (us-east-2): {SQS_FORWARDING_URLS['stg']}")
+print(f"SQS PRD (us-east-1): {SQS_FORWARDING_URLS['prd']}")
 print()
 
 # ============================================================================
@@ -72,7 +59,7 @@ if aws_profile:
         session = boto3.Session(profile_name=aws_profile)
         aws_account = session.client('sts').get_caller_identity().get('Account')
         if aws_account:
-            print(f"✅ Autenticação com perfil AWS bem-sucedida")
+            print("✅ Autenticação com perfil AWS bem-sucedida")
             print(f"Conta AWS: {aws_account}")
     except Exception as e:
         print(f"⚠️  Perfil AWS '{aws_profile}' falhou: {str(e)}")
@@ -127,9 +114,8 @@ FipeDataStack(
     "FipeDataStack",  # Nome sem sufixo - stack única
     env=env,
     stage="unified",  # Identificador interno (não afeta nomes dos recursos)
-    create_rds=False,  # Não criar RDS - acessar remotamente
-    rds_endpoints=RDS_ENDPOINTS,  # Endpoints dos RDS remotos
-    rds_secrets_arns=RDS_SECRETS_ARNS  # ARNs das secrets para dual-write
+    create_rds=False,  # Não criar RDS - Lambdas encaminham via SQS
+    sqs_forwarding_urls=SQS_FORWARDING_URLS  # URLs das filas SQS STG e PRD
 )
 
 print("✅ Stack criada com sucesso")
