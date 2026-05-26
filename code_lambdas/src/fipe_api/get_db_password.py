@@ -27,7 +27,7 @@ def get_db_auth_token(host, port, user, region=None):
         token = rds_client.generate_db_auth_token(
             DBHostname=host,
             Port=int(port),
-            DBUser=user,
+            DBUsername=user,
             Region=region
         )
         logger.debug(f"Token IAM gerado para {user}@{host} (região: {region})")
