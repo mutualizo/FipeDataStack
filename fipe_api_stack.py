@@ -15,6 +15,9 @@ from aws_cdk import aws_sqs as sqs
 from aws_cdk import aws_lambda_event_sources as lambda_event_sources
 from aws_cdk import aws_events as events
 from aws_cdk import aws_events_targets as targets
+from aws_cdk import aws_cloudwatch as cw
+from aws_cdk import aws_cloudwatch_actions as cwa
+from aws_cdk import aws_sns as sns
 
 class FipeApiStack(NestedStack):
     def __init__(
@@ -359,6 +362,119 @@ class FipeApiStack(NestedStack):
         Tags.of(redrive_lambda).add("function", "RedriveDLQLambda")
         print(f"Lambda RedriveDLQLambda criada: {redrive_lambda.function_name}")
 
+        # ====================================================================
+        # CloudWatch Alarms + SNS Topic (Observabilidade - Dia 2)
+        # ====================================================================
+        print("[FipeApiStack] Criando SNS Topic para alertas...")
+        alert_topic = sns.Topic(
+            self,
+            "FipeAlertTopic",
+            display_name="Alertas FipeDataStack",
+            topic_name="fipe-alerts"
+        )
+        Tags.of(alert_topic).add("stage", stage)
+        print(f"[FipeApiStack] SNS Topic criado: {alert_topic.topic_arn}")
+
+        # Alarms para DLQs - disparar quando houver mensagens
+        print("[FipeApiStack] Criando Alarms para DLQs...")
+
+        manufacturer_dlq_alarm = cw.Alarm(
+            self,
+            "ManufacturerDLQAlarm",
+            metric=manufacturer_dlq.metric_approximate_number_of_messages_visible(),
+            threshold=1,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            alarm_name="FipeManufacturerDLQ-Alarm",
+            alarm_description="Alerta quando há mensagens na DLQ de fabricantes"
+        )
+        manufacturer_dlq_alarm.add_alarm_action(cwa.SnsAction(alert_topic))
+        Tags.of(manufacturer_dlq_alarm).add("stage", stage)
+
+        model_dlq_alarm = cw.Alarm(
+            self,
+            "ModelDLQAlarm",
+            metric=model_dlq.metric_approximate_number_of_messages_visible(),
+            threshold=1,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            alarm_name="FipeModelDLQ-Alarm",
+            alarm_description="Alerta quando há mensagens na DLQ de modelos"
+        )
+        model_dlq_alarm.add_alarm_action(cwa.SnsAction(alert_topic))
+        Tags.of(model_dlq_alarm).add("stage", stage)
+
+        price_dlq_alarm = cw.Alarm(
+            self,
+            "PriceDLQAlarm",
+            metric=price_dlq.metric_approximate_number_of_messages_visible(),
+            threshold=1,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            alarm_name="FipePriceDLQ-Alarm",
+            alarm_description="Alerta quando há mensagens na DLQ de preços"
+        )
+        price_dlq_alarm.add_alarm_action(cwa.SnsAction(alert_topic))
+        Tags.of(price_dlq_alarm).add("stage", stage)
+
+        print("[FipeApiStack] Alarms para DLQs criados e conectados ao SNS")
+
+        # Alarms para Lambda Errors
+        print("[FipeApiStack] Criando Alarms para Lambda Errors...")
+
+        manufacturer_error_alarm = cw.Alarm(
+            self,
+            "ManufacturerLambdaErrorAlarm",
+            metric=manufacturer_lambda.metric_errors(),
+            threshold=1,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            alarm_name="FipeManufacturerLoader-Errors",
+            alarm_description="Alerta quando FipeManufacturerLoader falha"
+        )
+        manufacturer_error_alarm.add_alarm_action(cwa.SnsAction(alert_topic))
+        Tags.of(manufacturer_error_alarm).add("stage", stage)
+
+        model_error_alarm = cw.Alarm(
+            self,
+            "ModelLambdaErrorAlarm",
+            metric=model_lambda.metric_errors(),
+            threshold=1,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            alarm_name="FipeModelLoader-Errors",
+            alarm_description="Alerta quando FipeModelLoader falha"
+        )
+        model_error_alarm.add_alarm_action(cwa.SnsAction(alert_topic))
+        Tags.of(model_error_alarm).add("stage", stage)
+
+        price_error_alarm = cw.Alarm(
+            self,
+            "PriceLambdaErrorAlarm",
+            metric=price_lambda.metric_errors(),
+            threshold=1,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            alarm_name="FipePriceLoader-Errors",
+            alarm_description="Alerta quando FipePriceLoader falha"
+        )
+        price_error_alarm.add_alarm_action(cwa.SnsAction(alert_topic))
+        Tags.of(price_error_alarm).add("stage", stage)
+
+        ingestor_error_alarm = cw.Alarm(
+            self,
+            "IngestorLambdaErrorAlarm",
+            metric=ingestor_lambda.metric_errors(),
+            threshold=1,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            alarm_name="FipeSomaIngestor-Errors",
+            alarm_description="Alerta quando FipeSomaIngestor falha"
+        )
+        ingestor_error_alarm.add_alarm_action(cwa.SnsAction(alert_topic))
+        Tags.of(ingestor_error_alarm).add("stage", stage)
+
+        print("[FipeApiStack] Alarms para Lambda Errors criados e conectados ao SNS")
 
         # CloudFormation Outputs (sem sufixo de stage)
         CfnOutput(self, "ManufacturerQueueUrl", value=manufacturer_queue.queue_url, description="URL da fila SQS para fabricantes")
@@ -369,5 +485,6 @@ class FipeApiStack(NestedStack):
         CfnOutput(self, "PriceDLQUrl", value=price_dlq.queue_url, description="URL da fila DLQ para preços")
         CfnOutput(self, "FipeManufacturerLambda", value=manufacturer_lambda.function_name, description="Nome da função Lambda para carregamento de fabricantes")
         CfnOutput(self, "MonthlyEventRuleArn", value=monthly_rule.rule_arn, description="ARN da regra CloudWatch Events para execução mensal")
+        CfnOutput(self, "FipeAlertTopicArn", value=alert_topic.topic_arn, description="ARN do SNS Topic para alertas")
 
         print("[FipeApiStack] Criação concluída com sucesso")
