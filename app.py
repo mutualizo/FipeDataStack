@@ -106,6 +106,13 @@ env = Environment(
     region=TARGET_REGION
 )
 
+# Obter Slack Webhook URL do contexto CDK
+slack_webhook_url = app.node.try_get_context("slack_webhook_url")
+if slack_webhook_url:
+    print(f"✅ Slack Webhook URL obtida do contexto CDK")
+else:
+    print("⚠️  Slack Webhook URL não definida - Lambda Slack Notifier não funcionará")
+
 # Stack única em sa-east-1 (sem sufixo de stage)
 print(f"Criando stack: FipeDataStack em {TARGET_REGION}")
 
@@ -115,7 +122,8 @@ FipeDataStack(
     env=env,
     stage="unified",  # Identificador interno (não afeta nomes dos recursos)
     create_rds=False,  # Não criar RDS - Lambdas encaminham via SQS
-    sqs_forwarding_urls=SQS_FORWARDING_URLS  # URLs das filas SQS STG e PRD
+    sqs_forwarding_urls=SQS_FORWARDING_URLS,  # URLs das filas SQS STG e PRD
+    slack_webhook_url=slack_webhook_url  # URL do webhook Slack
 )
 
 print("✅ Stack criada com sucesso")

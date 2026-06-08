@@ -32,6 +32,7 @@ class FipeApiStack(NestedStack):
         stage: str = "dev",
         sqs_forwarding_stg: str = None,
         sqs_forwarding_prd: str = None,
+        slack_webhook_url: str = None,
         **kwargs
     ) -> None:
         """
@@ -40,6 +41,7 @@ class FipeApiStack(NestedStack):
         Args:
             sqs_forwarding_stg: URL da fila SQS STG para encaminhamento cross-region
             sqs_forwarding_prd: URL da fila SQS PRD para encaminhamento cross-region
+            slack_webhook_url: URL do webhook Slack para notificações
         """
         super().__init__(scope, construct_id, **kwargs)
 
@@ -482,8 +484,6 @@ class FipeApiStack(NestedStack):
         # ====================================================================
         print("[FipeApiStack] Criando Lambda Slack Notifier...")
 
-        slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "")
-
         slack_notifier = lambda_.Function(
             self,
             "SlackNotifier",
@@ -497,7 +497,7 @@ class FipeApiStack(NestedStack):
             timeout=Duration.seconds(30),
             memory_size=128,
             environment={
-                "SLACK_WEBHOOK_URL": slack_webhook_url
+                "SLACK_WEBHOOK_URL": slack_webhook_url or ""
             },
             role=lambda_role,
             description="FIPE - Envia alertas CloudWatch para Slack"

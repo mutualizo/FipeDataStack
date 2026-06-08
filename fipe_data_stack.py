@@ -29,6 +29,7 @@ class FipeDataStack(Stack):
         create_rds: bool = True,
         rds_endpoints: dict = None,
         sqs_forwarding_urls: dict = None,
+        slack_webhook_url: str = None,
         **kwargs
     ) -> None:
         """
@@ -40,6 +41,7 @@ class FipeDataStack(Stack):
                           Obrigatório quando create_rds=False
             sqs_forwarding_urls: Dict com URLs SQS para encaminhamento cross-region
                                  {"stg": "https://sqs...", "prd": "https://sqs..."}
+            slack_webhook_url: URL do webhook Slack para notificações
         """
         super().__init__(scope, construct_id, **kwargs)
 
@@ -287,7 +289,8 @@ class FipeDataStack(Stack):
             db_secret_arn=db_secret_arn,
             stage=stage,
             sqs_forwarding_stg=sqs_stg,
-            sqs_forwarding_prd=sqs_prd
+            sqs_forwarding_prd=sqs_prd,
+            slack_webhook_url=slack_webhook_url
         )
 
         # Adicionar regra de segurança apenas se RDS foi criado localmente
