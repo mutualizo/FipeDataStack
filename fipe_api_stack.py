@@ -18,6 +18,10 @@ from aws_cdk import aws_lambda_event_sources as lambda_event_sources
 from aws_cdk import aws_secretsmanager as secretsmanager
 from aws_cdk import aws_events as events
 from aws_cdk import aws_events_targets as targets
+from aws_cdk import aws_cloudwatch as cw
+from aws_cdk import aws_cloudwatch_actions as cwa
+from aws_cdk import aws_sns as sns
+from aws_cdk import aws_sns_subscriptions as sns_subscriptions
 
 class FipeApiStack(NestedStack):
     def __init__(self, scope: Construct, construct_id: str, 
@@ -290,7 +294,78 @@ class FipeApiStack(NestedStack):
         Tags.of(redrive_lambda).add("function", "RedriveDLQLambda")
         print(f"Lambda RedriveDLQLambda criada: {redrive_lambda.function_name}")
 
-        
+        # ====================================================================
+        # CloudWatch Alarms + SNS Topic para Ingestor (Melhoria 3)
+        # ====================================================================
+        print("[FipeApiStack-Ingestor] Criando SNS Topic e Alarms...")
+
+        ingestor_alert_topic = sns.Topic(
+            self,
+            f"FipeIngestorAlertTopic-{stage}",
+            display_name=f"Alertas FipeIngestor-{stage}",
+            topic_name=f"fipe-ingestor-alerts-{stage}"
+        )
+        Tags.of(ingestor_alert_topic).add("stage", stage)
+
+        # Alarm para DLQ do Ingestor
+        price_dlq_alarm = cw.Alarm(
+            self,
+            f"PriceDLQAlarm-{stage}",
+            metric=price_dlq.metric_approximate_number_of_messages_visible(),
+            threshold=1,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            alarm_name=f"FipePriceDLQ-Alarm-{stage}",
+            alarm_description=f"Alerta quando há mensagens na DLQ de preços - {stage}"
+        )
+        price_dlq_alarm.add_alarm_action(cwa.SnsAction(ingestor_alert_topic))
+        Tags.of(price_dlq_alarm).add("stage", stage)
+
+        # Alarm para Lambda errors do Ingestor
+        ingestor_error_alarm = cw.Alarm(
+            self,
+            f"IngestorLambdaErrorAlarm-{stage}",
+            metric=ingestor_lambda.metric_errors(),
+            threshold=1,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            alarm_name=f"FipeSomaIngestor-Errors-{stage}",
+            alarm_description=f"Alerta quando FipeSomaIngestor falha - {stage}"
+        )
+        ingestor_error_alarm.add_alarm_action(cwa.SnsAction(ingestor_alert_topic))
+        Tags.of(ingestor_error_alarm).add("stage", stage)
+
+        # Criar/copiar Lambda Slack Notifier (reutiliza código de sa-east-1)
+        slack_webhook_url = self.node.try_get_context("slack_webhook_url")
+
+        slack_notifier = lambda_.Function(
+            self,
+            f"SlackNotifier-{stage}",
+            function_name=f"FipeSlackNotifier-{stage}",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            code=lambda_.Code.from_asset(
+                "code_lambdas/src/fipe_api",
+                exclude=["__pycache__", "*.pyc"]
+            ),
+            handler="fipe_slack_notifier.lambda_handler",
+            timeout=Duration.seconds(30),
+            memory_size=128,
+            environment={
+                "SLACK_WEBHOOK_URL": slack_webhook_url or ""
+            },
+            role=lambda_role,
+            description=f"FIPE - Envia alertas CloudWatch para Slack ({stage})"
+        )
+        Tags.of(slack_notifier).add("stage", stage)
+        Tags.of(slack_notifier).add("function", "SlackNotifier")
+
+        # Inscrever Lambda ao SNS Topic
+        ingestor_alert_topic.add_subscription(
+            sns_subscriptions.LambdaSubscription(slack_notifier)
+        )
+
+        print(f"[FipeApiStack-Ingestor] Alarms e SNS configurados para {stage}")
+
         # ... (restante do código de outputs sem alterações) ...
         CfnOutput(self, f"ManufacturerQueueUrl-{stage}", value=manufacturer_queue.queue_url, description=f"URL da fila SQS para fabricantes - {stage}")
         CfnOutput(self, f"ModelQueueUrl-{stage}", value=model_queue.queue_url, description=f"URL da fila SQS para modelos - {stage}")
@@ -300,5 +375,7 @@ class FipeApiStack(NestedStack):
         CfnOutput(self, f"PriceDLQUrl-{stage}", value=price_dlq.queue_url, description=f"URL da fila DLQ para preços - {stage}")
         CfnOutput(self, f"FipeManufacturerLambda-{stage}", value=manufacturer_lambda.function_name, description=f"Nome da função Lambda para carregamento de fabricantes - {stage}")
         CfnOutput(self, f"MonthlyEventRuleArn-{stage}", value=monthly_rule.rule_arn, description=f"ARN da regra CloudWatch Events para execução mensal - {stage}")
+        CfnOutput(self, f"FipeIngestorAlertTopicArn-{stage}", value=ingestor_alert_topic.topic_arn, description=f"ARN do SNS Topic para alertas do Ingestor - {stage}")
+        CfnOutput(self, f"FipeSlackNotifierLambda-{stage}", value=slack_notifier.function_name, description=f"Nome da função Lambda para notificações Slack - {stage}")
         
         print(f"Criação do FipeApiStack concluída com sucesso para o estágio: {stage}")
