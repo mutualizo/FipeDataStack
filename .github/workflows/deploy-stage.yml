@@ -52,4 +52,4 @@ jobs:
           AWS_REGION: ${{ vars.AWS_REGION }}
 
       - name: Deploy CDK Stack
-        run: cdk deploy --context vpc_id=${{ vars.VCP_ID }} --require-approval never --verbose
+        run: cdk deploy --context vpc_id=${{ vars.VCP_ID }} --context slack_webhook_url=${{ secrets.SLACK_WEBHOOK_URL }} --require-approval never --verbose
