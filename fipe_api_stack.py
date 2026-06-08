@@ -18,6 +18,7 @@ from aws_cdk import aws_events_targets as targets
 from aws_cdk import aws_cloudwatch as cw
 from aws_cdk import aws_cloudwatch_actions as cwa
 from aws_cdk import aws_sns as sns
+from aws_cdk import aws_sns_subscriptions as sns_subscriptions
 
 class FipeApiStack(NestedStack):
     def __init__(
@@ -476,6 +477,41 @@ class FipeApiStack(NestedStack):
 
         print("[FipeApiStack] Alarms para Lambda Errors criados e conectados ao SNS")
 
+        # ====================================================================
+        # Slack Notifier Lambda (Dia 3)
+        # ====================================================================
+        print("[FipeApiStack] Criando Lambda Slack Notifier...")
+
+        slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "")
+
+        slack_notifier = lambda_.Function(
+            self,
+            "SlackNotifier",
+            function_name="FipeSlackNotifier",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            code=lambda_.Code.from_asset(
+                os.path.join(script_dir, "code_lambdas/src/fipe_api"),
+                exclude=["__pycache__", "*.pyc"]
+            ),
+            handler="fipe_slack_notifier.lambda_handler",
+            timeout=Duration.seconds(30),
+            memory_size=128,
+            environment={
+                "SLACK_WEBHOOK_URL": slack_webhook_url
+            },
+            role=lambda_role,
+            description="FIPE - Envia alertas CloudWatch para Slack"
+        )
+        Tags.of(slack_notifier).add("stage", stage)
+        Tags.of(slack_notifier).add("function", "SlackNotifier")
+
+        # Inscrever Lambda ao SNS Topic
+        alert_topic.add_subscription(
+            sns_subscriptions.LambdaSubscription(slack_notifier)
+        )
+
+        print("[FipeApiStack] Lambda Slack Notifier criada e inscrita no SNS Topic")
+
         # CloudFormation Outputs (sem sufixo de stage)
         CfnOutput(self, "ManufacturerQueueUrl", value=manufacturer_queue.queue_url, description="URL da fila SQS para fabricantes")
         CfnOutput(self, "ModelQueueUrl", value=model_queue.queue_url, description="URL da fila SQS para modelos")
@@ -486,5 +522,6 @@ class FipeApiStack(NestedStack):
         CfnOutput(self, "FipeManufacturerLambda", value=manufacturer_lambda.function_name, description="Nome da função Lambda para carregamento de fabricantes")
         CfnOutput(self, "MonthlyEventRuleArn", value=monthly_rule.rule_arn, description="ARN da regra CloudWatch Events para execução mensal")
         CfnOutput(self, "FipeAlertTopicArn", value=alert_topic.topic_arn, description="ARN do SNS Topic para alertas")
+        CfnOutput(self, "FipeSlackNotifierLambda", value=slack_notifier.function_name, description="Nome da função Lambda para notificações Slack")
 
         print("[FipeApiStack] Criação concluída com sucesso")
