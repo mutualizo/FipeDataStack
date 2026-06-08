@@ -35,10 +35,6 @@ jobs:
           pip install -r requirements.txt
           npm install -g aws-cdk
 
-      - name: Clean Lambda Layer Directories
-        run: |
-          rm -rf lambda-layer/python fipe_api_layer/python *.zip
-
       - name: Install Layers for Lambdas
         run: |
           ls -la
@@ -52,4 +48,4 @@ jobs:
           AWS_REGION: ${{ vars.AWS_REGION }}
 
       - name: Deploy CDK Stack
-        run: cdk deploy --context vpc_id=${{ vars.VCP_ID }} --require-approval never --verbose
+        run: cdk deploy --context vpc_id=${{ vars.VCP_ID }} --context slack_webhook_url=${{ secrets.SLACK_WEBHOOK_URL }} --require-approval never --verbose
