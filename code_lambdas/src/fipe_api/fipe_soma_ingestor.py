@@ -8,6 +8,7 @@ import psycopg2
 from datetime import datetime
 from psycopg2 import sql
 from get_db_password import get_db_password
+from logging_helper import log_structured
 
 # Configure logger
 logger = logging.getLogger()
@@ -246,11 +247,17 @@ def lambda_handler(event, context):
     total_failures = len(batch_item_failures)
     total_records = len(event["Records"])
     success_count = total_records - total_failures
-    
+
     logger.info(f"INGESTOR - Processamento concluído: {success_count}/{total_records} mensagens processadas com sucesso.")
-    
+
     if total_failures > 0:
         logger.warning(f"INGESTOR - {total_failures} mensagens falharam e serão reenviadas para a fila.")
+        log_structured("ERROR", "Falhas no processamento de mensagens em us-east-1",
+                     error_type="DB_WRITE_FAILURE",
+                     details={"failed_count": total_failures, "total": total_records, "region": "us-east-1"})
+    else:
+        log_structured("SUCCESS", "Todos os dados foram persistidos no RDS em us-east-1",
+                     details={"total_messages": total_records, "region": "us-east-1"})
 
     # Retorna o dicionário contendo a lista de falhas.
     # A AWS Lambda usará isso para gerenciar o reprocessamento.
