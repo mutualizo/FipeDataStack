@@ -4,6 +4,7 @@ import os
 import logging
 import time
 from fipe_api_service import FipeAPI
+from logging_helper import log_structured
 
 # Configuração do logger
 logger = logging.getLogger()

@@ -4,6 +4,7 @@ import os
 import logging
 import time
 from fipe_api_service import FipeAPI
+from logging_helper import log_structured
 
 # Configure logger
 logger = logging.getLogger()
@@ -132,12 +133,16 @@ def lambda_handler(event, context):
                                 retries -= 1
                                 delay *= 2  # Aumento exponencial do delay
                             else:
-                                logger.error(f"Erro HTTP ao consultar modelos: {str(e)}")
+                                log_structured("ERROR", f"Erro HTTP ao consultar modelos: {manufacturer_name}",
+                                             error_type="API_HTTP_ERROR",
+                                             details={"manufacturer": manufacturer_name, "http_status": e.response.status_code if hasattr(e, 'response') else "unknown"})
                                 batch_item_failures.append({"itemIdentifier": message_id})
                                 break
-                                
+
                         except Exception as e:
-                            logger.error(f"Erro ao processar mensagem: {str(e)}")
+                            log_structured("ERROR", f"Erro ao processar mensagem de modelo",
+                                         error_type="MODEL_PROCESSING_ERROR",
+                                         details={"message_id": message_id, "error": str(e)})
                             batch_item_failures.append({"itemIdentifier": message_id})
                             break
                     

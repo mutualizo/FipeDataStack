@@ -4,6 +4,7 @@ import os
 import logging
 import boto3
 from botocore.exceptions import ClientError
+from logging_helper import log_structured
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -60,5 +61,13 @@ def lambda_handler(event, context):
 
     success = len(records) - len(batch_item_failures)
     logger.info(f"INGESTOR - Concluído: {success}/{len(records)} sucesso, {len(batch_item_failures)} falhas")
+
+    if len(batch_item_failures) == 0:
+        log_structured("SUCCESS", "Dados persistidos no RDS via dual-write",
+                     details={"total_messages": len(records), "regions": ["us-east-2", "us-east-1"]})
+    else:
+        log_structured("ERROR", f"Falhas no processamento de mensagens",
+                     error_type="DUAL_WRITE_FAILURE",
+                     details={"failed_count": len(batch_item_failures), "total": len(records)})
 
     return {"batchItemFailures": batch_item_failures}
