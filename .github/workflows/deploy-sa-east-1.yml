@@ -51,6 +51,7 @@ jobs:
           cdk deploy \
             --context vpc_id=${{ vars.VPC_ID_SA_EAST_1 }} \
             --context allowed_ip=${{ vars.ALLOWED_IP }} \
+            --context slack_webhook_url=${{ secrets.SLACK_WEBHOOK_URL }} \
             --require-approval never \
             --verbose
         env:
