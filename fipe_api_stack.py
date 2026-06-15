@@ -512,6 +512,52 @@ class FipeApiStack(NestedStack):
 
         print("[FipeApiStack] Lambda Slack Notifier criada e inscrita no SNS Topic")
 
+        # ====================================================================
+        # Soma Notifier Lambda (Melhoria 4)
+        # ====================================================================
+        print("[FipeApiStack] Criando Lambda Soma Notifier para webhooks...")
+
+        notifier_lambda = lambda_.Function(
+            self,
+            "SomaNotifier",
+            function_name="FipeSomaNotifier",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            code=lambda_.Code.from_asset(
+                os.path.join(script_dir, "code_lambdas/src/fipe_api"),
+                exclude=["__pycache__", "*.pyc"]
+            ),
+            handler="fipe_soma_notifier.lambda_handler",
+            timeout=Duration.minutes(5),
+            memory_size=256,
+            environment={
+                "WEBHOOK_PARAMETER_PATH": "/fipe/webhooks/sa-east-1",
+                "WEBHOOK_TIMEOUT": "10",
+                "STAGE": "sa-east-1"
+            },
+            role=lambda_role,
+            description="FIPE - Dispara webhooks para notificar apps consumidoras"
+        )
+        Tags.of(notifier_lambda).add("stage", stage)
+        Tags.of(notifier_lambda).add("function", "SomaNotifier")
+
+        # IAM Permissions para SSM Parameter Store
+        notifier_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["ssm:GetParameter"],
+                resources=[f"arn:aws:ssm:*:*:parameter/fipe/webhooks/*"]
+            )
+        )
+
+        # IAM Permissions para CloudWatch Metrics
+        notifier_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["cloudwatch:PutMetricData"],
+                resources=["*"]
+            )
+        )
+
+        print("[FipeApiStack] Lambda Soma Notifier criada com permissões de SSM e CloudWatch")
+
         # CloudFormation Outputs (sem sufixo de stage)
         CfnOutput(self, "ManufacturerQueueUrl", value=manufacturer_queue.queue_url, description="URL da fila SQS para fabricantes")
         CfnOutput(self, "ModelQueueUrl", value=model_queue.queue_url, description="URL da fila SQS para modelos")
@@ -523,5 +569,6 @@ class FipeApiStack(NestedStack):
         CfnOutput(self, "MonthlyEventRuleArn", value=monthly_rule.rule_arn, description="ARN da regra CloudWatch Events para execução mensal")
         CfnOutput(self, "FipeAlertTopicArn", value=alert_topic.topic_arn, description="ARN do SNS Topic para alertas")
         CfnOutput(self, "FipeSlackNotifierLambda", value=slack_notifier.function_name, description="Nome da função Lambda para notificações Slack")
+        CfnOutput(self, "FipeSomaNotifierLambda", value=notifier_lambda.function_name, description="Nome da função Lambda para webhooks de notificação")
 
         print("[FipeApiStack] Criação concluída com sucesso")
