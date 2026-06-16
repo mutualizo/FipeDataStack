@@ -318,6 +318,8 @@ from . import fipe_data
 ```python
 import logging
 import json
+import hashlib
+import hmac
 from odoo import http
 from odoo.http import request
 
@@ -327,14 +329,20 @@ _logger = logging.getLogger(__name__)
 class FipeWebhookController(http.Controller):
     """
     Controller para receber webhooks da Melhoria 4 (FipeDataStack)
+    
+    Segurança:
+    - Token de acesso no header X-Webhook-Token
+    - Validação de token contra lista de tokens autorizados
+    - Logging de tentativas de acesso não autorizado
     """
     
-    # API Key esperada (deve estar em variável de ambiente ou configuração)
-    # TODO: Mover para ir.config.parameter ou variável de ambiente
-    EXPECTED_API_KEYS = [
-        'test-key-123',
-        'sk_live_production_key',
-    ]
+    # Tokens de acesso esperados (deve estar em variável de ambiente ou configuração)
+    # Formato: {environment: token}
+    WEBHOOK_TOKENS = {
+        'sa-east-1': 'fipe_webhook_token_sa_east_1_abc123xyz789',
+        'stg': 'fipe_webhook_token_stg_def456uvw012',
+        'prd': 'fipe_webhook_token_prd_ghi789rst345',
+    }
     
     @http.route('/api/fipe/webhook', type='json', auth='public', methods=['POST'])
     def receive_fipe_webhook(self, **kwargs):
@@ -343,8 +351,8 @@ class FipeWebhookController(http.Controller):
         
         POST /api/fipe/webhook
         
-        Headers:
-            X-API-Key: <api_key>
+        Headers (OBRIGATÓRIO):
+            X-Webhook-Token: <token_de_acesso>
             Content-Type: application/json
         
         Body:
@@ -357,45 +365,88 @@ class FipeWebhookController(http.Controller):
             "stage": "sa-east-1"
         }
         
-        Response:
+        Response (Sucesso):
         {
-            "status": "received",
-            "message": "Webhook processado com sucesso",
-            "webhook_id": 123
+            "status": 200,
+            "message": "Webhook recebido e processado com sucesso",
+            "webhook_id": 1,
+            "reference_month": "2026-06",
+            "records_total": 45230
+        }
+        
+        Response (Erro - Token inválido):
+        {
+            "status": 401,
+            "message": "Token de acesso inválido",
+            "error": true
         }
         """
         try:
-            # 1. VALIDAÇÃO DE SEGURANÇA
-            api_key = request.httprequest.headers.get('X-API-Key')
+            # ═══════════════════════════════════════════════════════════
+            # 1. VALIDAÇÃO DE TOKEN (SEGURANÇA)
+            # ═══════════════════════════════════════════════════════════
             
-            if not api_key:
-                _logger.warning("FIPE: Webhook recebido sem X-API-Key header")
-                return self._error_response('API Key ausente', 401)
+            webhook_token = request.httprequest.headers.get('X-Webhook-Token')
             
-            if api_key not in self.EXPECTED_API_KEYS:
-                _logger.warning(f"FIPE: Webhook recebido com API Key inválida: {api_key}")
-                return self._error_response('API Key inválida', 401)
+            if not webhook_token:
+                _logger.warning(
+                    "FIPE: Webhook rejeitado - X-Webhook-Token não fornecido | "
+                    f"IP: {request.httprequest.remote_addr}"
+                )
+                return self._error_response('Token de acesso não fornecido', 401)
             
+            # Validar token contra lista de tokens autorizados
+            if not self._verify_webhook_token(webhook_token):
+                _logger.warning(
+                    f"FIPE: Webhook rejeitado - Token inválido | "
+                    f"Token: {self._mask_token(webhook_token)} | "
+                    f"IP: {request.httprequest.remote_addr}"
+                )
+                return self._error_response('Token de acesso inválido ou expirado', 401)
+            
+            _logger.info(
+                f"FIPE: Token validado com sucesso | "
+                f"Token: {self._mask_token(webhook_token)}"
+            )
+            
+            # ═══════════════════════════════════════════════════════════
             # 2. VALIDAÇÃO DE DADOS
+            # ═══════════════════════════════════════════════════════════
+            
             webhook_data = request.get_json_data()
             
+            if not webhook_data:
+                _logger.warning("FIPE: Webhook recebido com body vazio")
+                return self._error_response("Body JSON não fornecido", 400)
+            
             # Validar campos obrigatórios
-            required_fields = ['reference_month', 'records_total', 'stage']
-            for field in required_fields:
-                if field not in webhook_data:
-                    _logger.warning(f"FIPE: Campo obrigatório ausente: {field}")
-                    return self._error_response(f"Campo obrigatório ausente: {field}", 400)
+            required_fields = ['reference_month', 'records_total', 'stage', 'type']
+            missing_fields = [f for f in required_fields if f not in webhook_data]
+            
+            if missing_fields:
+                _logger.warning(f"FIPE: Campos obrigatórios ausentes: {missing_fields}")
+                return self._error_response(
+                    f"Campos obrigatórios ausentes: {', '.join(missing_fields)}", 
+                    400
+                )
             
             # Validar tipo de dados
             if not isinstance(webhook_data['records_total'], int) or webhook_data['records_total'] <= 0:
                 _logger.warning("FIPE: records_total deve ser um inteiro positivo")
-                return self._error_response("records_total inválido", 400)
+                return self._error_response("records_total deve ser um inteiro positivo", 400)
             
+            if webhook_data['type'] != 'WEBHOOK_NOTIFY':
+                _logger.warning(f"FIPE: Tipo de webhook inválido: {webhook_data['type']}")
+                return self._error_response("Tipo de webhook não suportado", 400)
+            
+            # ═══════════════════════════════════════════════════════════
             # 3. PROCESSAR WEBHOOK
+            # ═══════════════════════════════════════════════════════════
+            
             _logger.info(
-                f"FIPE: Webhook válido recebido - "
-                f"Mês: {webhook_data['reference_month']}, "
-                f"Registros: {webhook_data['records_total']}, "
+                f"FIPE: Webhook autorizado e validado | "
+                f"Mês: {webhook_data['reference_month']} | "
+                f"Registros: {webhook_data['records_total']} | "
                 f"Stage: {webhook_data['stage']}"
             )
             
@@ -403,7 +454,16 @@ class FipeWebhookController(http.Controller):
             fipe_webhook_model = request.env['fipe.webhook.data']
             fipe_record = fipe_webhook_model.create_from_webhook(webhook_data)
             
+            # ═══════════════════════════════════════════════════════════
             # 4. RESPOSTA DE SUCESSO
+            # ═══════════════════════════════════════════════════════════
+            
+            _logger.info(
+                f"FIPE: Webhook processado com sucesso | "
+                f"ID: {fipe_record.id} | "
+                f"Status: {fipe_record.status}"
+            )
+            
             return {
                 'status': 200,
                 'message': 'Webhook recebido e processado com sucesso',
@@ -416,8 +476,62 @@ class FipeWebhookController(http.Controller):
             _logger.error(f"FIPE: Erro ao processar webhook: {str(e)}")
             return self._error_response(f"Erro interno: {str(e)}", 500)
     
+    def _verify_webhook_token(self, token):
+        """
+        Verifica se o token fornecido é válido.
+        
+        Args:
+            token (str): Token de acesso fornecido no header
+            
+        Returns:
+            bool: True se o token é válido, False caso contrário
+        """
+        # Verificar contra tokens conhecidos
+        if token in self.WEBHOOK_TOKENS.values():
+            return True
+        
+        # Verificar contra variável de ambiente (para produção)
+        import os
+        allowed_tokens = os.environ.get('FIPE_WEBHOOK_TOKENS', '').split(',')
+        if token in allowed_tokens:
+            return True
+        
+        # Verificar contra ir.config.parameter do Odoo
+        try:
+            config = request.env['ir.config_parameter'].sudo()
+            odoo_tokens = config.get_param('fipe.webhook.tokens', '').split(',')
+            if token in odoo_tokens:
+                return True
+        except:
+            pass
+        
+        return False
+    
+    def _mask_token(self, token):
+        """
+        Mascara o token para logging (mostra apenas primeiros e últimos 4 caracteres).
+        
+        Args:
+            token (str): Token completo
+            
+        Returns:
+            str: Token mascarado (ex: fipe_...xyz789)
+        """
+        if len(token) <= 8:
+            return '****'
+        return f"{token[:7]}...{token[-6:]}"
+    
     def _error_response(self, message, status_code):
-        """Retorna resposta de erro padronizada."""
+        """
+        Retorna resposta de erro padronizada.
+        
+        Args:
+            message (str): Mensagem de erro
+            status_code (int): Código HTTP (401, 400, 500, etc)
+            
+        Returns:
+            dict: Dicionário com status, message e error=True
+        """
         return {
             'status': status_code,
             'message': message,
@@ -494,13 +608,27 @@ cp -r fipe_webhook /path/to/odoo/addons/
 
 ## 6. Teste Manual
 
-### Teste via curl
+### Token de Acesso
+
+Os tokens estão definidos no controller:
+
+```python
+WEBHOOK_TOKENS = {
+    'sa-east-1': 'fipe_webhook_token_sa_east_1_abc123xyz789',
+    'stg': 'fipe_webhook_token_stg_def456uvw012',
+    'prd': 'fipe_webhook_token_prd_ghi789rst345',
+}
+```
+
+**⚠️ IMPORTANTE:** Em produção, use **variáveis de ambiente** ou **ir.config.parameter**!
+
+### Teste via curl (Token Válido)
 
 ```bash
-# Teste com webhook.site
+# Teste com token válido
 curl -X POST https://seu-odoo.com/api/fipe/webhook \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: test-key-123" \
+  -H "X-Webhook-Token: fipe_webhook_token_sa_east_1_abc123xyz789" \
   -d '{
     "type": "WEBHOOK_NOTIFY",
     "pipeline": "fipe_monthly_load",
@@ -511,7 +639,40 @@ curl -X POST https://seu-odoo.com/api/fipe/webhook \
   }'
 ```
 
-### Resposta esperada
+### Teste via curl (Token Inválido)
+
+```bash
+# Teste com token inválido (deve retornar 401)
+curl -X POST https://seu-odoo.com/api/fipe/webhook \
+  -H "Content-Type: application/json" \
+  -H "X-Webhook-Token: token_invalido_123" \
+  -d '{
+    "type": "WEBHOOK_NOTIFY",
+    "pipeline": "fipe_monthly_load",
+    "reference_month": "2026-06",
+    "records_total": 45230,
+    "timestamp": "2026-06-15T14:30:00Z",
+    "stage": "sa-east-1"
+  }'
+```
+
+### Teste via curl (Sem Token)
+
+```bash
+# Teste sem token (deve retornar 401)
+curl -X POST https://seu-odoo.com/api/fipe/webhook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "WEBHOOK_NOTIFY",
+    "pipeline": "fipe_monthly_load",
+    "reference_month": "2026-06",
+    "records_total": 45230,
+    "timestamp": "2026-06-15T14:30:00Z",
+    "stage": "sa-east-1"
+  }'
+```
+
+### Resposta esperada (Sucesso - 200)
 
 ```json
 {
@@ -520,6 +681,36 @@ curl -X POST https://seu-odoo.com/api/fipe/webhook \
   "webhook_id": 1,
   "reference_month": "2026-06",
   "records_total": 45230
+}
+```
+
+### Resposta esperada (Token Inválido - 401)
+
+```json
+{
+  "status": 401,
+  "message": "Token de acesso inválido ou expirado",
+  "error": true
+}
+```
+
+### Resposta esperada (Token Ausente - 401)
+
+```json
+{
+  "status": 401,
+  "message": "Token de acesso não fornecido",
+  "error": true
+}
+```
+
+### Resposta esperada (Body Inválido - 400)
+
+```json
+{
+  "status": 400,
+  "message": "Campos obrigatórios ausentes: type",
+  "error": true
 }
 ```
 
@@ -542,37 +733,168 @@ tail -f /var/log/odoo/odoo.log | grep FIPE
 grep "FIPE:" /var/log/odoo/odoo.log
 ```
 
-## 8. Configurações Avançadas
+## 8. Configurações Seguras de Token
 
-### Armazenar API Key em variável de ambiente
+### ✅ Recomendado: Variável de Ambiente
 
-**Modificar: `controllers/webhook.py`**
+**Adicionar ao arquivo `.env` ou ao script de inicialização do Odoo:**
+
+```bash
+# .env
+FIPE_WEBHOOK_TOKENS="fipe_webhook_token_sa_east_1_abc123xyz789,fipe_webhook_token_stg_def456uvw012,fipe_webhook_token_prd_ghi789rst345"
+```
+
+**Usar no controller:**
 
 ```python
 import os
 
-# Buscar API keys de variável de ambiente
-EXPECTED_API_KEYS = os.environ.get('FIPE_API_KEYS', 'test-key-123').split(',')
+def _verify_webhook_token(self, token):
+    """Verifica token contra variável de ambiente."""
+    # Verificar contra variável de ambiente (PREFERIDO)
+    allowed_tokens = os.environ.get('FIPE_WEBHOOK_TOKENS', '').split(',')
+    return token in allowed_tokens
 ```
 
-### Usar ir.config.parameter
+### ✅ Alternativa: ir.config.parameter (Odoo)
 
-**Modificar: `controllers/webhook.py`**
+**Criar configuração via Código:**
 
 ```python
-@http.route('/api/fipe/webhook', type='json', auth='public', methods=['POST'])
-def receive_fipe_webhook(self, **kwargs):
-    # Buscar API keys da configuração Odoo
-    config = request.env['ir.config_parameter'].sudo()
-    allowed_api_keys = config.get_param('fipe.webhook.api_keys', 'test-key-123').split(',')
-    
-    api_key = request.httprequest.headers.get('X-API-Key')
-    
-    if api_key not in allowed_api_keys:
-        return self._error_response('API Key inválida', 401)
-    
-    # ... resto do código
+# __manifest__.py
+'data': [
+    'data/webhook_config.xml',
+],
 ```
+
+**File: `fipe_webhook/data/webhook_config.xml`**
+
+```xml
+<odoo>
+    <data noupdate="1">
+        <!-- Configuração de tokens do webhook FIPE -->
+        <record id="fipe_webhook_token_sa_east_1" model="ir.config_parameter">
+            <field name="key">fipe.webhook.token.sa_east_1</field>
+            <field name="value">fipe_webhook_token_sa_east_1_abc123xyz789</field>
+        </record>
+        
+        <record id="fipe_webhook_token_stg" model="ir.config_parameter">
+            <field name="key">fipe.webhook.token.stg</field>
+            <field name="value">fipe_webhook_token_stg_def456uvw012</field>
+        </record>
+        
+        <record id="fipe_webhook_token_prd" model="ir.config_parameter">
+            <field name="key">fipe.webhook.token.prd</field>
+            <field name="value">fipe_webhook_token_prd_ghi789rst345</field>
+        </record>
+    </data>
+</odoo>
+```
+
+**Usar no controller:**
+
+```python
+def _verify_webhook_token(self, token):
+    """Verifica token contra ir.config.parameter."""
+    try:
+        config = request.env['ir.config_parameter'].sudo()
+        
+        # Buscar tokens para cada ambiente
+        for env in ['sa_east_1', 'stg', 'prd']:
+            stored_token = config.get_param(f'fipe.webhook.token.{env}')
+            if token == stored_token:
+                return True
+    except:
+        pass
+    
+    return False
+```
+
+### ✅ Produção: Token com Expiração
+
+**Versão avançada com timestamp:**
+
+```python
+from datetime import datetime, timedelta
+import json
+
+def _verify_webhook_token(self, token):
+    """Verifica token com expiração."""
+    try:
+        # Decodificar token (ex: base64 encoded JSON)
+        import base64
+        decoded = base64.b64decode(token).decode('utf-8')
+        token_data = json.loads(decoded)
+        
+        # Verificar expiração
+        expiration = datetime.fromisoformat(token_data['exp'])
+        if datetime.now() > expiration:
+            _logger.warning(f"FIPE: Token expirado: {token_data['env']}")
+            return False
+        
+        # Verificar ambiente
+        valid_tokens = {
+            'sa-east-1': 'abc123xyz789',
+            'stg': 'def456uvw012',
+            'prd': 'ghi789rst345',
+        }
+        
+        if token_data['env'] in valid_tokens:
+            # Usar HMAC para validação adicional
+            expected_signature = hmac.new(
+                b'your-secret-key',
+                msg=f"{token_data['env']}{token_data['exp']}".encode(),
+                digestmod=hashlib.sha256
+            ).hexdigest()
+            
+            return token_data.get('sig') == expected_signature
+        
+        return False
+    except:
+        return False
+```
+
+### 🔐 Segurança: Boas Práticas
+
+1. **Nunca colocar tokens hardcoded no código**
+   ```python
+   # ❌ ERRADO
+   WEBHOOK_TOKENS = {
+       'sa-east-1': 'fipe_webhook_token_...',
+   }
+   
+   # ✅ CORRETO
+   import os
+   WEBHOOK_TOKENS = os.environ.get('FIPE_WEBHOOK_TOKENS', '').split(',')
+   ```
+
+2. **Use tokens longos e aleatórios**
+   ```bash
+   # Gerar token seguro
+   python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
+
+3. **Rotacione tokens regularmente**
+   ```bash
+   # Mudar tokens a cada 90 dias
+   export FIPE_WEBHOOK_TOKENS="novo_token_1,novo_token_2"
+   # Redeploy Odoo
+   ```
+
+4. **Log de tentativas falhadas**
+   ```python
+   _logger.warning(
+       f"FIPE: Webhook rejeitado - Token inválido | "
+       f"Token: {self._mask_token(webhook_token)} | "
+       f"IP: {request.httprequest.remote_addr}"
+   )
+   ```
+
+5. **Monitorar acessos suspeitos**
+   ```bash
+   # Verificar logs
+   grep "FIPE: Webhook rejeitado" /var/log/odoo/odoo.log | wc -l
+   ```
 
 ## 9. Monitoramento
 
