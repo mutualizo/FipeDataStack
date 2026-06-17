@@ -5,6 +5,7 @@ import os
 import logging
 import time
 import psycopg2
+import boto3
 from datetime import datetime
 from psycopg2 import sql
 from get_db_password import get_db_password
@@ -13,6 +14,9 @@ from logging_helper import log_structured
 # Configure logger
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# AWS Lambda client para invocar FipeSomaNotifier
+lambda_client = boto3.client('lambda', region_name='sa-east-1')
 
 def get_db_connection():
     # ... (esta função permanece a mesma)
@@ -199,6 +203,32 @@ def process_message(conn, record):
         # Em caso de erro de banco, a transação já sofreu rollback nas funções auxiliares
         return False # Retorna falha
 
+def invoke_webhook_notifier(reference_month, records_count, stage_target):
+    """
+    Invoca a Lambda FipeSomaNotifier para disparar webhooks após sucesso do pipeline.
+
+    Args:
+        reference_month: mês de referência (ex: "2026-05")
+        records_count: número de registros processados
+        stage_target: 'stg' ou 'prd' (ambiente destino dos webhooks)
+    """
+    try:
+        payload = {
+            "reference_month": reference_month,
+            "records_total": records_count,
+            "stage": stage_target
+        }
+
+        lambda_client.invoke(
+            FunctionName=f"FipeSomaNotifier-{stage_target}",
+            InvocationType="Event",  # Async invocation
+            Payload=json.dumps(payload)
+        )
+        logger.info(f"INGESTOR - Webhook notifier invocado para stage={stage_target}, reference_month={reference_month}")
+    except Exception as e:
+        logger.error(f"INGESTOR - Erro ao invocar webhook notifier ({stage_target}): {str(e)}")
+
+
 def lambda_handler(event, context):
     """
     Manipulador AWS Lambda para processar mensagens SQS e inserir dados no PostgreSQL.
@@ -211,6 +241,8 @@ def lambda_handler(event, context):
 
     # Lista para armazenar os identificadores das mensagens que falharam
     batch_item_failures = []
+    reference_month = None  # Será extraído da primeira mensagem processada
+    records_processed = []  # Armazena registros para contar
 
     logger.info(f"INGESTOR - Processando {len(event['Records'])} mensagens da fila SQS...")
 
@@ -223,10 +255,25 @@ def lambda_handler(event, context):
             if conn:
                 # Processa a mensagem. A função process_message agora retorna True/False.
                 success = process_message(conn, record)
+
+                # Se processou com sucesso, extrai o reference_month da mensagem
+                if success and reference_month is None:
+                    try:
+                        message_body = json.loads(record["body"])
+                        extracted_month = message_body.get("mesReferenciaAno")
+                        if extracted_month:
+                            reference_month = extracted_month
+                            logger.info(f"INGESTOR - Reference month extraído: {reference_month}")
+                    except Exception as e:
+                        logger.warning(f"INGESTOR - Erro ao extrair reference_month: {str(e)}")
+
+                # Registra sucesso para contagem final
+                if success:
+                    records_processed.append(record["messageId"])
             else:
                 logger.error(f"INGESTOR - Falha ao obter conexão com o BD para a mensagem {record['messageId']}")
                 # 'success' permanece False
-        
+
         except Exception as e:
             # Captura exceções que podem ocorrer fora do 'process_message' (ex: falha de conexão)
             logger.error(f"INGESTOR - Erro crítico no loop para a mensagem {record['messageId']}: {str(e)}")
@@ -238,7 +285,7 @@ def lambda_handler(event, context):
                     conn.close()
                 except Exception as e:
                     logger.error(f"INGESTOR - Erro ao fechar conexão para msg {record['messageId']}: {str(e)}")
-        
+
         # Se o processamento da mensagem não foi bem-sucedido, adiciona seu ID à lista de falhas
         if not success:
             batch_item_failures.append({"itemIdentifier": record["messageId"]})
@@ -258,6 +305,14 @@ def lambda_handler(event, context):
     else:
         log_structured("SUCCESS", "Todos os dados foram persistidos no RDS em us-east-2",
                      details={"total_messages": total_records, "region": "us-east-2"})
+
+        # Disparar webhooks em STG e PRD quando processamento for bem-sucedido
+        if reference_month and success_count > 0:
+            logger.info(f"INGESTOR - Disparando webhooks para STG e PRD (reference_month={reference_month}, records={success_count})")
+            invoke_webhook_notifier(reference_month, success_count, "stg")
+            invoke_webhook_notifier(reference_month, success_count, "prd")
+        else:
+            logger.warning(f"INGESTOR - Webhook não disparado: reference_month={reference_month}, success_count={success_count}")
 
     # Retorna o dicionário contendo a lista de falhas.
     # A AWS Lambda usará isso para gerenciar o reprocessamento.
