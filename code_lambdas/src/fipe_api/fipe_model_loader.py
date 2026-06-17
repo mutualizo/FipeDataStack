@@ -4,7 +4,6 @@ import os
 import logging
 import time
 from fipe_api_service import FipeAPI
-from logging_helper import log_structured
 
 # Configure logger
 logger = logging.getLogger()
@@ -53,7 +52,16 @@ def lambda_handler(event, context):
             try:
                 message = json.loads(record["body"])
                 logger.info(f"Conteúdo da mensagem: {json.dumps(message, ensure_ascii=False)}")
-                
+
+                # Reconhecer e passar adiante END_OF_RECORDS
+                if message.get("type") == "END_OF_RECORDS":
+                    logger.info(f"END_OF_RECORDS recebido para mês: {message.get('reference_month')}")
+                    batch.append(message)
+                    failures = fipe_api.send_sqs_messages(output_queue_url, batch)
+                    batch_item_failures.extend(failures)
+                    batch = []
+                    continue
+
                 if message.get("tabela_referencia"):
                     batch.append(message)
                     failures = fipe_api.send_sqs_messages(output_queue_url, batch)
@@ -133,16 +141,12 @@ def lambda_handler(event, context):
                                 retries -= 1
                                 delay *= 2  # Aumento exponencial do delay
                             else:
-                                log_structured("ERROR", f"Erro HTTP ao consultar modelos: {manufacturer_name}",
-                                             error_type="API_HTTP_ERROR",
-                                             details={"manufacturer": manufacturer_name, "http_status": e.response.status_code if hasattr(e, 'response') else "unknown"})
+                                logger.error(f"Erro HTTP ao consultar modelos: {str(e)}")
                                 batch_item_failures.append({"itemIdentifier": message_id})
                                 break
-
+                                
                         except Exception as e:
-                            log_structured("ERROR", f"Erro ao processar mensagem de modelo",
-                                         error_type="MODEL_PROCESSING_ERROR",
-                                         details={"message_id": message_id, "error": str(e)})
+                            logger.error(f"Erro ao processar mensagem: {str(e)}")
                             batch_item_failures.append({"itemIdentifier": message_id})
                             break
                     

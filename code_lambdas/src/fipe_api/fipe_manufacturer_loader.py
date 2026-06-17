@@ -4,7 +4,6 @@ import json
 import argparse
 import logging
 from fipe_api_service import FipeAPI
-from logging_helper import log_structured
 
 # Configure logger
 logger = logging.getLogger()
@@ -29,19 +28,16 @@ def process_table_reference(fipe_api, queue_url):
 def process_vehicle_types(is_local=False, local_output_file=None, period=None):
     """
     Função principal que processa os tipos de veículos
-
+    
     Args:
         is_local (bool): Indica se está rodando localmente
         local_output_file (str): Caminho para arquivo de saída local (quando is_local=True)
     """
-    if not is_local:
-        log_structured("START", "Pipeline iniciado em sa-east-1")
-
     fipe_api = FipeAPI(period=period)
     queue_url = os.getenv('SQS_OUTPUT_URL')
     force_type = os.getenv('FORCE_VEHICLE_TYPE', False)
     force_model = os.getenv('FORCE_VEHICLE_MODEL', False)
-
+    
     logger.info(f"Iniciando o processamento dos tipos de veículos...")
     
     if not queue_url and not is_local:
@@ -127,10 +123,8 @@ def process_vehicle_types(is_local=False, local_output_file=None, period=None):
                     time.sleep(delay)
             logger.info(f"Completed processing for vehicle type {vehicle_type}.")
             time.sleep(delay)  # Delay extra entre tipos de veículos
-        except Exception as e:
-            log_structured("ERROR", f"Erro ao processar tipo de veículo {vehicle_type}",
-                         error_type="VEHICLE_TYPE_ERROR",
-                         details={"vehicle_type": vehicle_type, "error": str(e)})
+        except Exception as e: 
+            logger.error(f"Error processing vehicle type {vehicle_type}: {e}")
 
     # Se estiver rodando localmente e tiver mensagens, salva em arquivo
     if is_local and local_messages and local_output_file:
@@ -142,6 +136,19 @@ def process_vehicle_types(is_local=False, local_output_file=None, period=None):
             logger.error(f"Error saving local messages to file: {e}")
 
     logger.info("Processing completed for all vehicle types.")
+
+    # Enviar mensagem END_OF_RECORDS para sinalizar fim do pipeline mensal
+    if not is_local and queue_url:
+        end_of_records_message = {
+            "type": "END_OF_RECORDS",
+            "reference_month": fipe_api.reference_month_name,
+            "reference_month_code": fipe_api.reference_table_code,
+            "records_count": 0,  # Será contado em cada etapa
+            "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+        }
+        fipe_api.send_message_sqs(queue_url, end_of_records_message)
+        logger.info(f"END_OF_RECORDS enviado para sinalizar fim do processamento mensal: {fipe_api.reference_month_name}")
+
     return {
         'statusCode': 200,
         'body': 'Processing completed successfully!',

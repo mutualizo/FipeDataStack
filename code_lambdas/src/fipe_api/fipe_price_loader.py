@@ -4,7 +4,6 @@ import os
 import logging
 import time
 from fipe_api_service import FipeAPI
-from logging_helper import log_structured
 
 # Configuração do logger
 logger = logging.getLogger()
@@ -49,7 +48,15 @@ def lambda_handler(event, context):
         try:
             message = json.loads(record["body"])
             logger.info(f"Message {message_id} received: {message}")
-            
+
+            # Reconhecer e passar adiante END_OF_RECORDS
+            if message.get("type") == "END_OF_RECORDS":
+                logger.info(f"END_OF_RECORDS recebido para mês: {message.get('reference_month')}")
+                batch.append(message)
+                send_batch(batch)
+                batch.clear()
+                continue
+
             if message.get("tabela_referencia"):
                 logger.info(f"Message {message_id} tabela referenciada!")
                 batch.append(message)
