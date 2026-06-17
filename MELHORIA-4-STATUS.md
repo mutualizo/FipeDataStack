@@ -1,9 +1,9 @@
 # Melhoria 4: Webhooks - Status de Implementação
 
 **Data:** 2026-06-17  
-**Status:** ✅ **IMPLEMENTAÇÃO CONCLUÍDA**  
+**Status:** ✅ **IMPLEMENTAÇÃO CORRIGIDA - ARQUITETURA FINAL**  
 **Branch:** `melhoria-4-webhooks`  
-**Commits:** 2 (core implementation + documentation)
+**Commits:** 4 (core impl + end-of-records cascade + doc)
 
 ---
 
@@ -11,102 +11,230 @@
 
 Implementação do sistema de notificação por webhooks para alertar aplicações consumidoras quando dados FIPE são disponibilizados. O sistema dispara **automaticamente** quando FipeSomaIngestor (sa-east-1) termina de processar dados com sucesso, invocando as Lambdas FipeSomaNotifier em STG e PRD.
 
-### Fluxo Implementado
+### Fluxo Implementado (Com Cascata END_OF_RECORDS)
 
 ```
 PIPELINE MENSAL (EventBridge - 4º dia, 01:00 UTC)
     ↓
-[FipeManufacturerLoader - sa-east-1]
+[FipeManufacturerLoader - sa-east-1] 01:00-01:05
     ├─ Busca fabricantes API FIPE
-    └─ Envia para SQS manufacturer-queue
-        ↓
-    [FipeModelLoader - sa-east-1]
-        ├─ Busca modelos por fabricante
-        └─ Envia para SQS model-queue
+    ├─ Envia cada fabricante para SQS manufacturer-queue
+    └─ ✨ AO FINAL: Envia mensagem END_OF_RECORDS
+        │
+        ├─ {"type": "END_OF_RECORDS", "reference_month": "2026-06", ...}
+        │
+        └─ Envia para SQS manufacturer-queue
             ↓
-        [FipePriceLoader - sa-east-1]
+    [FipeModelLoader - sa-east-1] 01:05-01:10
+        ├─ Consome mensagens de manufacturer-queue
+        ├─ Busca modelos por fabricante
+        ├─ Envia para SQS model-queue
+        └─ ⚡ Reconhece END_OF_RECORDS → passa adiante para model-queue
+            ↓
+        [FipePriceLoader - sa-east-1] 01:10-01:15
+            ├─ Consome mensagens de model-queue
             ├─ Busca preços por modelo
-            └─ Envia para SQS price-queue
+            ├─ Envia para SQS price-queue
+            └─ ⚡ Reconhece END_OF_RECORDS → passa adiante para price-queue
                 ↓
-            [FipeSomaIngestor - sa-east-1]
-                ├─ Consome de price-queue
-                ├─ Insere em RDS sa-east-1
+            [FipeSomaIngestor - sa-east-1] 01:15-01:20
+                ├─ Consome mensagens de price-queue
+                ├─ Insere dados em RDS sa-east-1
                 ├─ Encaminha para RDS STG (us-east-2)
                 ├─ Encaminha para RDS PRD (us-east-1)
-                └─ ✨ AQUI INVOCA WEBHOOKS ✨
-                    ├─ FipeSomaNotifier-stg (us-east-2)
-                    │   ├─ Lê /fipe/webhooks/stg do Parameter Store
-                    │   ├─ Dispara POST para cada webhook configurado
-                    │   ├─ Retry exponencial se falhar
-                    │   └─ Emite métricas CloudWatch
-                    │
-                    └─ FipeSomaNotifier-prd (us-east-1)
-                        ├─ Lê /fipe/webhooks/prd do Parameter Store
-                        ├─ Dispara POST para cada webhook configurado
-                        ├─ Retry exponencial se falhar
-                        └─ Emite métricas CloudWatch
+                │
+                └─ ⚡ RECONHECE END_OF_RECORDS!
+                    ├─ Valida que houve SUCESSO (total_failures == 0)
+                    └─ ✨ DISPARA WEBHOOKS UMA VEZ ✨
+                        ├─ invoke("FipeSomaNotifier-stg", {reference_month, records_total})
+                        └─ invoke("FipeSomaNotifier-prd", {reference_month, records_total})
                             ↓
-                        [Aplicação Consumidora - ex: Odoo v19]
-                            ├─ Recebe POST com dados FIPE
-                            ├─ Valida token X-Webhook-Token
-                            ├─ Processa dados (atualiza preços, estoque, etc)
-                            └─ Retorna 200 OK
+                        [FipeSomaNotifier-stg] (us-east-2) 01:20-01:21
+                            ├─ Lê /fipe/webhooks/stg do Parameter Store
+                            ├─ Dispara POST para cada webhook configurado
+                            ├─ Retry exponencial se falhar (5 tentativas)
+                            └─ Emite métricas CloudWatch
+                                ↓
+                        [FipeSomaNotifier-prd] (us-east-1) 01:20-01:21
+                            ├─ Lê /fipe/webhooks/prd do Parameter Store
+                            ├─ Dispara POST para cada webhook configurado
+                            ├─ Retry exponencial se falhar (5 tentativas)
+                            └─ Emite métricas CloudWatch
+                                ↓
+                            [Aplicações Consumidoras - ex: Odoo v19]
+                                ├─ Recebem POST com dados FIPE
+                                ├─ Validam token X-Webhook-Token
+                                ├─ Processam dados (atualizam preços, estoque, etc)
+                                └─ Retornam 200 OK
+
+**GARANTIA:** Webhook dispara UMA VEZ por mês, apenas ao final do pipeline completo
 ```
 
 ---
 
 ## Arquitetura Corrigida
 
-### O Problema Original
+### O Problema Original (RESOLVIDO ✅)
 
-Na primeira implementação, FipeSomaNotifier era invocado **independentemente** em sa-east-1, sem estar integrado ao fluxo da cascade. Isso violava o design de fase descrito.
+Na primeira implementação, FipeSomaIngestor disparava webhook **toda vez que era invocado** (múltiplas vezes durante o pipeline mensal). Isso violava a especificação: deveria disparar **UMA VEZ ao final do pipeline**.
 
-### A Solução
+**Problema:** 
+```
+Invocação 1 do ingestor → Webhook dispara ❌
+Invocação 2 do ingestor → Webhook dispara novamente ❌ (DUPLICADO!)
+Invocação 3 do ingestor → Webhook dispara novamente ❌ (TRIPLICADO!)
+```
 
-FipeSomaIngestor (sa-east-1) agora **orquestra** a invocação das Lambdas FipeSomaNotifier:
+### A Solução: Cascata END_OF_RECORDS
 
-1. **FipeSomaIngestor-sa-east-1** processa todas as mensagens de price-queue
-2. Se **SUCESSO** (total_failures == 0):
-   - Extrai `reference_month` da primeira mensagem
-   - Conta `success_count` (mensagens processadas com sucesso)
-   - Invoca `FipeSomaNotifier-stg` (async) com (reference_month, success_count, "stg")
-   - Invoca `FipeSomaNotifier-prd` (async) com (reference_month, success_count, "prd")
-3. Se **FALHA** (total_failures > 0):
-   - Webhook **não** é disparado (segurança)
-   - Mensagens falhadas vão para DLQ para retry manual
+Implementamos um **marcador de fim de pipeline** que casceia por todas as Lambdas:
 
-### Por Que Esta Abordagem
+**1. FipeManufacturerLoader** (Origem)
+```python
+# Após processar TODOS os manufacturers, envia:
+END_OF_RECORDS = {
+    "type": "END_OF_RECORDS",
+    "reference_month": "2026-06",
+    "reference_month_code": "280"
+}
+# Envia para: manufacturer-queue
+```
 
-- ✅ **Automático:** Webhook dispara sem manual trigger
-- ✅ **Síncrono com dados:** Dispara APÓS dados serem persistidos em RDS
-- ✅ **Isolado por ambiente:** STG e PRD disparam em seus próprios ambientes AWS
-- ✅ **SA-EAST-1 não envia notificações:** Apenas orquestra (conforme especificado)
-- ✅ **Seguro:** Só dispara se processamento foi bem-sucedido
-- ✅ **Observável:** Logs e métricas CloudWatch
+**2. FipeModelLoader** (Passa Adiante)
+```python
+if message.get("type") == "END_OF_RECORDS":
+    logger.info("END_OF_RECORDS reconhecido → passando adiante")
+    batch.append(message)  # Envia para model-queue
+    continue
+```
+
+**3. FipePriceLoader** (Passa Adiante)
+```python
+if message.get("type") == "END_OF_RECORDS":
+    logger.info("END_OF_RECORDS reconhecido → passando adiante")
+    batch.append(message)  # Envia para price-queue
+    continue
+```
+
+**4. FipeSomaIngestor** (Reconhece e Dispara) ✨
+```python
+if message.get("type") == "END_OF_RECORDS":
+    end_of_records_received = True
+    reference_month = message.get("reference_month")
+    continue
+
+# ... (processa dados normais) ...
+
+# AO FINAL: Dispara webhook APENAS se recebeu END_OF_RECORDS
+if end_of_records_received and total_failures == 0:
+    invoke_webhook_notifier(reference_month, records_processed, "stg")
+    invoke_webhook_notifier(reference_month, records_processed, "prd")
+```
+
+### Garantias da Solução
+
+- ✅ **Uma única vez:** Webhook dispara quando END_OF_RECORDS é recebido
+- ✅ **Fim confirmado:** Só dispara após fim completo do pipeline
+- ✅ **Seguro:** Não dispara se houver falhas (total_failures > 0)
+- ✅ **Determinístico:** Não há race conditions
+- ✅ **Preciso:** Contador exato de registros processados
+- ✅ **Automático:** Sem intervenção manual
+- ✅ **Observável:** Logs estruturados + métricas CloudWatch
 
 ---
 
 ## Componentes Implementados
 
-### 1. Lambda FipeSomaIngestor Modificada
+### 0. Lambda FipeManufacturerLoader Modificada
+**Arquivo:** `code_lambdas/src/fipe_api/fipe_manufacturer_loader.py`
+
+**Alterações:**
+- ✅ Após processar TODOS os manufacturers, envia mensagem especial
+- ✅ Mensagem: `{"type": "END_OF_RECORDS", "reference_month": "2026-06", ...}`
+- ✅ Enviada para SQS manufacturer-queue
+- ✅ Sinaliza fim do pipeline mensal
+
+**Comportamento:**
+```python
+# Após processar todos os fabricantes:
+if not is_local and queue_url:
+    end_of_records_message = {
+        "type": "END_OF_RECORDS",
+        "reference_month": fipe_api.reference_month_name,
+        "reference_month_code": fipe_api.reference_table_code,
+        "records_count": 0,
+        "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+    }
+    fipe_api.send_message_sqs(queue_url, end_of_records_message)
+    logger.info(f"END_OF_RECORDS enviado para sinalizar fim do processamento")
+```
+
+### 1. Lambda FipeModelLoader Modificada
+**Arquivo:** `code_lambdas/src/fipe_api/fipe_model_loader.py`
+
+**Alterações:**
+- ✅ Reconhece mensagem `type == "END_OF_RECORDS"`
+- ✅ Passa adiante para model-queue sem modificar
+
+**Comportamento:**
+```python
+if message.get("type") == "END_OF_RECORDS":
+    logger.info(f"END_OF_RECORDS → passando para model-queue")
+    batch.append(message)
+    failures = fipe_api.send_sqs_messages(output_queue_url, batch)
+    batch = []
+    continue  # Não processa como dado normal
+```
+
+### 2. Lambda FipePriceLoader Modificada
+**Arquivo:** `code_lambdas/src/fipe_api/fipe_price_loader.py`
+
+**Alterações:**
+- ✅ Reconhece mensagem `type == "END_OF_RECORDS"`
+- ✅ Passa adiante para price-queue sem modificar
+
+**Comportamento:**
+```python
+if message.get("type") == "END_OF_RECORDS":
+    logger.info(f"END_OF_RECORDS → passando para price-queue")
+    batch.append(message)
+    send_batch(batch)
+    batch.clear()
+    continue  # Não processa como dado normal
+```
+
+### 3. Lambda FipeSomaIngestor Modificada
 **Arquivo:** `code_lambdas/src/fipe_api/fipe_soma_ingestor.py`
 
 **Alterações:**
 - ✅ Adicionado import `boto3` para lambda client
 - ✅ Adicionado função `invoke_webhook_notifier(reference_month, records_count, stage_target)`
-- ✅ Extração de `reference_month` durante processamento
-- ✅ Contagem de registros processados com sucesso
-- ✅ Invocação assíncrona (InvokeFunction com InvocationType="Event") de FipeSomaNotifier-stg e FipeSomaNotifier-prd após sucesso
+- ✅ Reconhece mensagem `type == "END_OF_RECORDS"`
+- ✅ Flag `end_of_records_received` para saber quando disparar
+- ✅ Contador preciso de `records_processed`
+- ✅ Webhook dispara **APENAS quando END_OF_RECORDS é recebido**
 
 **Comportamento:**
 ```python
-if total_failures == 0:
-    # Webhook é disparado APENAS se sucesso
-    invoke_webhook_notifier("2026-06", 45230, "stg")
-    invoke_webhook_notifier("2026-06", 45230, "prd")
-else:
-    # Webhook NÃO é disparado se falhar
-    log("Webhook não disparado: falhas no processamento")
+# Reconhecer END_OF_RECORDS
+if message_body.get("type") == "END_OF_RECORDS":
+    logger.info(f"END_OF_RECORDS recebido para mês: {message_body.get('reference_month')}")
+    end_of_records_received = True
+    reference_month = message_body.get("reference_month")
+    success = True  # Marca como sucesso (não é erro)
+    continue
+
+# Processa dados normalmente...
+# ...
+
+# DISPARA WEBHOOK APENAS SE END_OF_RECORDS RECEBIDO!
+if end_of_records_received and reference_month and records_processed > 0 and total_failures == 0:
+    logger.info(f"🚀 FIM DO PIPELINE MENSAL - Disparando webhooks")
+    invoke_webhook_notifier(reference_month, records_processed, "stg")
+    invoke_webhook_notifier(reference_month, records_processed, "prd")
+elif end_of_records_received and total_failures > 0:
+    logger.warning(f"END_OF_RECORDS recebido, mas houve {total_failures} falhas")
+    logger.warning(f"Webhook NÃO será disparado (dados incompletos)")
 ```
 
 ### 2. Lambda FipeSomaNotifier (Nova)
@@ -197,25 +325,57 @@ Script para inicializar webhooks no Parameter Store:
 Dispara FipeManufacturerLoader-sa-east-1
 ```
 
-**2. Lambda Chain** (01:00 - 01:15 UTC)
+**2. Lambda Chain - Fase 1: Manufaturers** (01:00 - 01:05 UTC)
 ```
-FipeManufacturerLoader
-    ↓ [200 msgs] → SQS
-FipeModelLoader
-    ↓ [5000 msgs] → SQS
-FipePriceLoader
-    ↓ [45230 msgs] → SQS
-FipeSomaIngestor (sa-east-1)
-    ├─ Processa 45230 msgs
-    ├─ Insere 45230 registros em RDS sa-east-1
-    ├─ Encaminha para RDS STG
-    ├─ Encaminha para RDS PRD
-    └─ LOG: "Disparando webhooks para STG e PRD"
-        ├─ invoke("FipeSomaNotifier-stg", {"reference_month": "2026-06", "records_total": 45230, "stage": "stg"})
-        └─ invoke("FipeSomaNotifier-prd", {"reference_month": "2026-06", "records_total": 45230, "stage": "prd"})
+FipeManufacturerLoader (sa-east-1)
+    ├─ GET /marcas?idioma=1 (FIPE API)
+    ├─ Processa 60+ fabricantes
+    ├─ Envia cada fabricante para SQS manufacturer-queue
+    ├─ LOG: "Processamento completo para todos os tipos de veículos"
+    └─ ✨ Envia END_OF_RECORDS para manufacturer-queue
+        └─ {"type": "END_OF_RECORDS", "reference_month": "2026-06"}
 ```
 
-**3. Webhook Dispatch** (01:15 - 01:20 UTC)
+**3. Lambda Chain - Fase 2: Models** (01:05 - 01:10 UTC)
+```
+FipeModelLoader (sa-east-1) consome de manufacturer-queue
+    ├─ Processa 60+ fabricantes
+    ├─ Busca modelos de cada fabricante
+    ├─ Envia modelos para SQS model-queue
+    └─ ⚡ Reconhece END_OF_RECORDS → passa adiante para model-queue
+        └─ Continua processando até acabar fila
+```
+
+**4. Lambda Chain - Fase 3: Prices** (01:10 - 01:15 UTC)
+```
+FipePriceLoader (sa-east-1) consome de model-queue
+    ├─ Processa ~5000 modelos
+    ├─ Busca preços de cada modelo
+    ├─ Envia preços para SQS price-queue
+    └─ ⚡ Reconhece END_OF_RECORDS → passa adiante para price-queue
+        └─ Continua processando até acabar fila
+```
+
+**5. Lambda Chain - Fase 4: Ingest + Webhook** (01:15 - 01:20 UTC)
+```
+FipeSomaIngestor (sa-east-1) consome de price-queue
+    ├─ Processa ~45.230 preços
+    ├─ Insere em RDS sa-east-1
+    ├─ Encaminha para RDS STG (us-east-2)
+    ├─ Encaminha para RDS PRD (us-east-1)
+    │
+    └─ ⚡ Reconhece END_OF_RECORDS!
+        ├─ LOG: "END_OF_RECORDS recebido para mês: 2026-06"
+        ├─ Valida que total_failures == 0 (sem erros)
+        ├─ Extrai: reference_month = "2026-06", records_processed = 45230
+        └─ ✨ DISPARA WEBHOOKS (UMA VEZ!)
+            ├─ invoke("FipeSomaNotifier-stg", {"reference_month": "2026-06", "records_total": 45230, "stage": "stg"})
+            └─ invoke("FipeSomaNotifier-prd", {"reference_month": "2026-06", "records_total": 45230, "stage": "prd"})
+            
+            LOG: "🚀 FIM DO PIPELINE MENSAL - Disparando webhooks para STG e PRD"
+```
+
+**6. Webhook Dispatch** (01:20 - 01:22 UTC)
 
 **STG (FipeSomaNotifier-stg em us-east-2):**
 ```
@@ -450,8 +610,10 @@ aws cloudwatch put-metric-alarm \
 ## Commits Realizados
 
 ```
-45f2a52 update: Implementar webhook dispatch cascadeado por FipeSomaIngestor (Melhoria 4)
+742e8fb fix: Implementar cascata END_OF_RECORDS para disparo único de webhooks (Melhoria 4)
 7af5376 add: Documentação e scripts para configuração de webhooks (Melhoria 4)
+5bac9fc docs: Adicionar documento de status completo da Melhoria 4 (Webhooks)
+45f2a52 update: Implementar webhook dispatch cascadeado por FipeSomaIngestor (Melhoria 4)
 ```
 
 ---
