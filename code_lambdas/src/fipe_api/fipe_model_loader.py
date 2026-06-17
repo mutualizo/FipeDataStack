@@ -52,7 +52,16 @@ def lambda_handler(event, context):
             try:
                 message = json.loads(record["body"])
                 logger.info(f"Conteúdo da mensagem: {json.dumps(message, ensure_ascii=False)}")
-                
+
+                # Reconhecer e passar adiante END_OF_RECORDS
+                if message.get("type") == "END_OF_RECORDS":
+                    logger.info(f"END_OF_RECORDS recebido para mês: {message.get('reference_month')}")
+                    batch.append(message)
+                    failures = fipe_api.send_sqs_messages(output_queue_url, batch)
+                    batch_item_failures.extend(failures)
+                    batch = []
+                    continue
+
                 if message.get("tabela_referencia"):
                     batch.append(message)
                     failures = fipe_api.send_sqs_messages(output_queue_url, batch)

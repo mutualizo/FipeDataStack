@@ -241,8 +241,9 @@ def lambda_handler(event, context):
 
     # Lista para armazenar os identificadores das mensagens que falharam
     batch_item_failures = []
-    reference_month = None  # Será extraído da primeira mensagem processada
-    records_processed = []  # Armazena registros para contar
+    reference_month = None  # Será extraído da primeira mensagem de dados
+    records_processed = 0  # Contador de registros processados
+    end_of_records_received = False  # Flag para saber se recebeu END_OF_RECORDS
 
     logger.info(f"INGESTOR - Processando {len(event['Records'])} mensagens da fila SQS...")
 
@@ -250,7 +251,17 @@ def lambda_handler(event, context):
         conn = None
         success = False
         try:
-            # Para cada mensagem, estabelecemos uma nova conexão para isolar as transações
+            # Verificar se é mensagem END_OF_RECORDS
+            message_body = json.loads(record["body"])
+
+            if message_body.get("type") == "END_OF_RECORDS":
+                logger.info(f"INGESTOR - END_OF_RECORDS recebido para mês: {message_body.get('reference_month')}")
+                end_of_records_received = True
+                reference_month = message_body.get("reference_month")
+                success = True  # Marca como sucesso (não é erro)
+                continue
+
+            # Para cada mensagem de dados, estabelecemos uma nova conexão para isolar as transações
             conn = get_db_connection()
             if conn:
                 # Processa a mensagem. A função process_message agora retorna True/False.
@@ -259,7 +270,6 @@ def lambda_handler(event, context):
                 # Se processou com sucesso, extrai o reference_month da mensagem
                 if success and reference_month is None:
                     try:
-                        message_body = json.loads(record["body"])
                         extracted_month = message_body.get("mesReferenciaAno")
                         if extracted_month:
                             reference_month = extracted_month
@@ -267,12 +277,16 @@ def lambda_handler(event, context):
                     except Exception as e:
                         logger.warning(f"INGESTOR - Erro ao extrair reference_month: {str(e)}")
 
-                # Registra sucesso para contagem final
+                # Incrementar contador de registros processados com sucesso
                 if success:
-                    records_processed.append(record["messageId"])
+                    records_processed += 1
             else:
                 logger.error(f"INGESTOR - Falha ao obter conexão com o BD para a mensagem {record['messageId']}")
                 # 'success' permanece False
+
+        except json.JSONDecodeError as e:
+            logger.error(f"INGESTOR - Erro ao decodificar JSON: {str(e)}")
+            success = False
 
         except Exception as e:
             # Captura exceções que podem ocorrer fora do 'process_message' (ex: falha de conexão)
@@ -306,13 +320,17 @@ def lambda_handler(event, context):
         log_structured("SUCCESS", "Todos os dados foram persistidos no RDS em us-east-2",
                      details={"total_messages": total_records, "region": "us-east-2"})
 
-        # Disparar webhooks em STG e PRD quando processamento for bem-sucedido
-        if reference_month and success_count > 0:
-            logger.info(f"INGESTOR - Disparando webhooks para STG e PRD (reference_month={reference_month}, records={success_count})")
-            invoke_webhook_notifier(reference_month, success_count, "stg")
-            invoke_webhook_notifier(reference_month, success_count, "prd")
-        else:
-            logger.warning(f"INGESTOR - Webhook não disparado: reference_month={reference_month}, success_count={success_count}")
+    # ⚠️ WEBHOOK DISPARA APENAS QUANDO END_OF_RECORDS É RECEBIDO
+    if end_of_records_received and reference_month and records_processed > 0 and total_failures == 0:
+        logger.info(f"INGESTOR - 🚀 FIM DO PIPELINE MENSAL - Disparando webhooks para STG e PRD")
+        logger.info(f"INGESTOR - Reference month: {reference_month}, Total de registros: {records_processed}")
+        invoke_webhook_notifier(reference_month, records_processed, "stg")
+        invoke_webhook_notifier(reference_month, records_processed, "prd")
+    elif end_of_records_received and total_failures > 0:
+        logger.warning(f"INGESTOR - END_OF_RECORDS recebido, mas houve {total_failures} falhas no processamento")
+        logger.warning(f"INGESTOR - Webhook NÃO será disparado (dados incompletos ou corrompidos)")
+    elif not end_of_records_received:
+        logger.info(f"INGESTOR - END_OF_RECORDS não recebido ainda (pipeline ainda em andamento)")
 
     # Retorna o dicionário contendo a lista de falhas.
     # A AWS Lambda usará isso para gerenciar o reprocessamento.
