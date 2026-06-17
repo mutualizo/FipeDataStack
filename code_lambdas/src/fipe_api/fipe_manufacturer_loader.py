@@ -136,6 +136,19 @@ def process_vehicle_types(is_local=False, local_output_file=None, period=None):
             logger.error(f"Error saving local messages to file: {e}")
 
     logger.info("Processing completed for all vehicle types.")
+
+    # Enviar mensagem END_OF_RECORDS para sinalizar fim do pipeline mensal
+    if not is_local and queue_url:
+        end_of_records_message = {
+            "type": "END_OF_RECORDS",
+            "reference_month": fipe_api.reference_month_name,
+            "reference_month_code": fipe_api.reference_table_code,
+            "records_count": 0,  # Será contado em cada etapa
+            "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+        }
+        fipe_api.send_message_sqs(queue_url, end_of_records_message)
+        logger.info(f"END_OF_RECORDS enviado para sinalizar fim do processamento mensal: {fipe_api.reference_month_name}")
+
     return {
         'statusCode': 200,
         'body': 'Processing completed successfully!',
