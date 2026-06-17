@@ -366,84 +366,129 @@ class FipeApiStack(NestedStack):
 
         print(f"[FipeApiStack-Ingestor] Alarms e SNS configurados para {stage}")
 
-        # Criar Lambdas FipeSomaNotifier para disparar webhooks em STG e PRD
-        print("Criando funções FipeSomaNotifier para webhooks...")
+        # Criar Lambda FipeSomaNotifier apenas para o stage apropriado
+        print("Criando função FipeSomaNotifier para webhooks...")
         webhook_notifier_env = {
             "WEBHOOK_PARAMETER_PATH": f"/fipe/webhooks",
             "WEBHOOK_TIMEOUT": "10",
             "STAGE": stage
         }
 
-        # Lambda para notificar STG
-        webhook_notifier_stg = lambda_.Function(
-            self, f"WebhookNotifier-stg-{stage}",
-            function_name=f"FipeSomaNotifier-stg",
-            runtime=lambda_.Runtime.PYTHON_3_12,
-            code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]),
-            handler="fipe_soma_notifier.lambda_handler",
-            timeout=Duration.minutes(5),
-            memory_size=256,
-            environment=webhook_notifier_env,
-            role=lambda_role,
-            layers=[lambda_layer],
-            description="FIPE - Dispara webhooks para notificar app consumidoras quando dados STG estão prontos"
-        )
-        Tags.of(webhook_notifier_stg).add("stage", "stg")
-        Tags.of(webhook_notifier_stg).add("function", "WebhookNotifier")
+        webhook_notifiers = []  # Lista para armazenar Lambdas de webhook criadas
 
-        # Lambda para notificar PRD
-        webhook_notifier_prd = lambda_.Function(
-            self, f"WebhookNotifier-prd-{stage}",
-            function_name=f"FipeSomaNotifier-prd",
-            runtime=lambda_.Runtime.PYTHON_3_12,
-            code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]),
-            handler="fipe_soma_notifier.lambda_handler",
-            timeout=Duration.minutes(5),
-            memory_size=256,
-            environment=webhook_notifier_env,
-            role=lambda_role,
-            layers=[lambda_layer],
-            description="FIPE - Dispara webhooks para notificar app consumidoras quando dados PRD estão prontos"
-        )
-        Tags.of(webhook_notifier_prd).add("stage", "prd")
-        Tags.of(webhook_notifier_prd).add("function", "WebhookNotifier")
+        # Lambda de webhook: apenas para o stage apropriado
+        if stage == "stg":
+            # STG (us-east-2): FipeSomaNotifier-stg
+            webhook_notifier = lambda_.Function(
+                self, "WebhookNotifier-stg",
+                function_name="FipeSomaNotifier-stg",
+                runtime=lambda_.Runtime.PYTHON_3_12,
+                code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]),
+                handler="fipe_soma_notifier.lambda_handler",
+                timeout=Duration.minutes(5),
+                memory_size=256,
+                environment=webhook_notifier_env,
+                role=lambda_role,
+                layers=[lambda_layer],
+                description="FIPE - Dispara webhooks para notificar app consumidoras quando dados STG estão prontos"
+            )
+            Tags.of(webhook_notifier).add("stage", "stg")
+            Tags.of(webhook_notifier).add("function", "WebhookNotifier")
 
-        # Adicionar permissões IAM para SSM GetParameter e CloudWatch PutMetricData
-        webhook_notifier_stg.add_to_role_policy(
-            iam.PolicyStatement(
-                actions=["ssm:GetParameter"],
-                resources=[f"arn:aws:ssm:*:*:parameter/fipe/webhooks/stg"]
+            webhook_notifier.add_to_role_policy(
+                iam.PolicyStatement(
+                    actions=["ssm:GetParameter"],
+                    resources=[f"arn:aws:ssm:*:*:parameter/fipe/webhooks/stg"]
+                )
             )
-        )
-        webhook_notifier_stg.add_to_role_policy(
-            iam.PolicyStatement(
-                actions=["cloudwatch:PutMetricData"],
-                resources=["*"]
+            webhook_notifier.add_to_role_policy(
+                iam.PolicyStatement(
+                    actions=["cloudwatch:PutMetricData"],
+                    resources=["*"]
+                )
             )
-        )
 
-        webhook_notifier_prd.add_to_role_policy(
-            iam.PolicyStatement(
-                actions=["ssm:GetParameter"],
-                resources=[f"arn:aws:ssm:*:*:parameter/fipe/webhooks/prd"]
+            webhook_notifiers.append(webhook_notifier)
+            print(f"Lambda FipeSomaNotifier-stg criada para STG (us-east-2)")
+
+        elif stage == "prd":
+            # PRD (us-east-1): FipeSomaNotifier-prd
+            webhook_notifier = lambda_.Function(
+                self, "WebhookNotifier-prd",
+                function_name="FipeSomaNotifier-prd",
+                runtime=lambda_.Runtime.PYTHON_3_12,
+                code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]),
+                handler="fipe_soma_notifier.lambda_handler",
+                timeout=Duration.minutes(5),
+                memory_size=256,
+                environment=webhook_notifier_env,
+                role=lambda_role,
+                layers=[lambda_layer],
+                description="FIPE - Dispara webhooks para notificar app consumidoras quando dados PRD estão prontos"
             )
-        )
-        webhook_notifier_prd.add_to_role_policy(
-            iam.PolicyStatement(
-                actions=["cloudwatch:PutMetricData"],
-                resources=["*"]
+            Tags.of(webhook_notifier).add("stage", "prd")
+            Tags.of(webhook_notifier).add("function", "WebhookNotifier")
+
+            webhook_notifier.add_to_role_policy(
+                iam.PolicyStatement(
+                    actions=["ssm:GetParameter"],
+                    resources=[f"arn:aws:ssm:*:*:parameter/fipe/webhooks/prd"]
+                )
             )
-        )
+            webhook_notifier.add_to_role_policy(
+                iam.PolicyStatement(
+                    actions=["cloudwatch:PutMetricData"],
+                    resources=["*"]
+                )
+            )
+
+            webhook_notifiers.append(webhook_notifier)
+            print(f"Lambda FipeSomaNotifier-prd criada para PRD (us-east-1)")
+
+        elif stage == "sa-east-1":
+            # DEV (sa-east-1): FipeSomaNotifier-dev apenas para TESTE
+            webhook_notifier = lambda_.Function(
+                self, "WebhookNotifier-dev",
+                function_name="FipeSomaNotifier-dev",
+                runtime=lambda_.Runtime.PYTHON_3_12,
+                code=lambda_.Code.from_asset("code_lambdas/src/fipe_api", exclude=["__pycache__", "*.pyc"]),
+                handler="fipe_soma_notifier.lambda_handler",
+                timeout=Duration.minutes(5),
+                memory_size=256,
+                environment=webhook_notifier_env,
+                role=lambda_role,
+                layers=[lambda_layer],
+                description="FIPE - Webhook notifier para TESTE em DEV (sa-east-1)"
+            )
+            Tags.of(webhook_notifier).add("stage", "dev")
+            Tags.of(webhook_notifier).add("function", "WebhookNotifier")
+            Tags.of(webhook_notifier).add("purpose", "test-only")
+
+            webhook_notifier.add_to_role_policy(
+                iam.PolicyStatement(
+                    actions=["ssm:GetParameter"],
+                    resources=[f"arn:aws:ssm:*:*:parameter/fipe/webhooks/*"]
+                )
+            )
+            webhook_notifier.add_to_role_policy(
+                iam.PolicyStatement(
+                    actions=["cloudwatch:PutMetricData"],
+                    resources=["*"]
+                )
+            )
+
+            webhook_notifiers.append(webhook_notifier)
+            print(f"Lambda FipeSomaNotifier-dev criada para DEV (sa-east-1) - APENAS PARA TESTE")
 
         # Adicionar permissão ao FipeSomaIngestor para invocar as Lambdas FipeSomaNotifier
-        ingestor_lambda.add_to_role_policy(
-            iam.PolicyStatement(
-                actions=["lambda:InvokeFunction"],
-                resources=[webhook_notifier_stg.function_arn, webhook_notifier_prd.function_arn]
+        if webhook_notifiers:
+            ingestor_lambda.add_to_role_policy(
+                iam.PolicyStatement(
+                    actions=["lambda:InvokeFunction"],
+                    resources=[wn.function_arn for wn in webhook_notifiers]
+                )
             )
-        )
-
-        print(f"Lambdas FipeSomaNotifier criadas e permissões configuradas para {stage}")
+            print(f"Permissões IAM configuradas para invocar {len(webhook_notifiers)} Lambda(s) de webhook")
 
         # ... (restante do código de outputs sem alterações) ...
         CfnOutput(self, f"ManufacturerQueueUrl-{stage}", value=manufacturer_queue.queue_url, description=f"URL da fila SQS para fabricantes - {stage}")
@@ -456,7 +501,10 @@ class FipeApiStack(NestedStack):
         CfnOutput(self, f"MonthlyEventRuleArn-{stage}", value=monthly_rule.rule_arn, description=f"ARN da regra CloudWatch Events para execução mensal - {stage}")
         CfnOutput(self, f"FipeIngestorAlertTopicArn-{stage}", value=ingestor_alert_topic.topic_arn, description=f"ARN do SNS Topic para alertas do Ingestor - {stage}")
         CfnOutput(self, f"FipeSlackNotifierLambda-{stage}", value=slack_notifier.function_name, description=f"Nome da função Lambda para notificações Slack - {stage}")
-        CfnOutput(self, f"FipeSomaNotifier-stg-{stage}", value=webhook_notifier_stg.function_name, description=f"Nome da função Lambda para webhooks STG - {stage}")
-        CfnOutput(self, f"FipeSomaNotifier-prd-{stage}", value=webhook_notifier_prd.function_name, description=f"Nome da função Lambda para webhooks PRD - {stage}")
+
+        # Output condicional para Lambda de webhook
+        if webhook_notifiers:
+            webhook_name = webhook_notifiers[0].function_name
+            CfnOutput(self, f"FipeSomaNotifier-{stage}", value=webhook_name, description=f"Nome da função Lambda para webhooks - {stage}")
 
         print(f"Criação do FipeApiStack concluída com sucesso para o estágio: {stage}")
