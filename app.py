@@ -39,7 +39,7 @@ if aws_profile:
         
         # Obter a conta AWS do perfil
         try:
-            aws_account = session.client('sts').get_caller_identity().get('Account')
+            aws_account = session.client('sts', region_name=aws_region).get_caller_identity().get('Account')
             if not aws_account:
                 raise ValueError("Não foi possível obter a conta AWS do perfil")
         except ClientError as e:
