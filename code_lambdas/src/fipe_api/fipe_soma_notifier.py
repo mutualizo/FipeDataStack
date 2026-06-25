@@ -57,12 +57,14 @@ def call_webhook(url: str, payload: Dict, api_key: str, webhook_name: str, stage
 
     headers = {
         "Content-Type": "application/json",
-        "X-Webhook-Token": api_key
+        "X-Webhook-Token": api_key,
+        "proxy_nonce": "C4e8CRNLtji2fea4YHnwVRNDmeZPVRTZ"
     }
 
     for attempt in range(max_retries):
         try:
             logger.info(f"NOTIFIER - Tentativa {attempt + 1}/{max_retries} para {webhook_name} em {stage}")
+            logger.info(f"NOTIFIER - URL sendo chamada: {url}")
             response = requests.post(url, json=payload, headers=headers, timeout=timeout)
 
             if response.status_code == 200:
