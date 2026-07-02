@@ -1,7 +1,10 @@
 name: Deploy CDK Python Stack - Development
 
 on:
-  workflow_dispatch:  # Executa somente quando acionada manualmente via GitHub Actions
+  workflow_dispatch:  # Executa quando acionada manualmente via GitHub Actions
+  push:
+    branches:
+      - development
 
 jobs:
   deploy:
