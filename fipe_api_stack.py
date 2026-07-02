@@ -370,7 +370,7 @@ class FipeApiStack(NestedStack):
         print("Criando função FipeSomaNotifier para webhooks...")
         webhook_notifier_env = {
             "WEBHOOK_PARAMETER_PATH": f"/fipe/webhooks",
-            "WEBHOOK_TIMEOUT": "10",
+            "WEBHOOK_TIMEOUT": "30",
             "STAGE": stage
         }
 
