@@ -51,7 +51,7 @@ def call_webhook(url: str, payload: Dict, api_key: str, webhook_name: str, stage
     Returns:
         True se sucesso, False se falha após retries
     """
-    timeout = int(os.environ.get("WEBHOOK_TIMEOUT", "10"))
+    timeout = int(os.environ.get("WEBHOOK_TIMEOUT", "30"))
     max_retries = 5
     retry_delays = [5, 10, 20, 40, 80]  # segundos
 
