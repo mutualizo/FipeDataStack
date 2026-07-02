@@ -73,6 +73,7 @@ def call_webhook(url: str, payload: Dict, api_key: str, webhook_name: str, stage
                 return True
             else:
                 logger.warning(f"NOTIFIER - Webhook {webhook_name} retornou status {response.status_code}")
+                logger.warning(f"NOTIFIER - Corpo da resposta: {response.text}")
                 if attempt < max_retries - 1:
                     wait_time = retry_delays[attempt]
                     logger.info(f"NOTIFIER - Aguardando {wait_time}s antes de retry...")
@@ -80,6 +81,7 @@ def call_webhook(url: str, payload: Dict, api_key: str, webhook_name: str, stage
                     time.sleep(wait_time)
         except requests.exceptions.RequestException as e:
             logger.error(f"NOTIFIER - Erro ao chamar webhook {webhook_name}: {str(e)}")
+            logger.error(f"NOTIFIER - Tipo de erro: {type(e).__name__}")
             if attempt < max_retries - 1:
                 wait_time = retry_delays[attempt]
                 logger.info(f"NOTIFIER - Aguardando {wait_time}s antes de retry...")
@@ -137,16 +139,10 @@ def lambda_handler(event, context):
 
     try:
         # Extrair dados do evento
-        reference_month = event.get("reference_month")
+        reference_month = event.get("reference_month", False)
+        reference_month_code = event.get("reference_month_code", False)
         records_total = event.get("records_total", 0)
         stage = event.get("stage", "stg")
-
-        if not reference_month:
-            logger.error("NOTIFIER - reference_month não fornecido no evento")
-            return {
-                "statusCode": 400,
-                "body": json.dumps({"error": "reference_month is required"})
-            }
 
         logger.info(f"NOTIFIER - Disparando webhooks para stage={stage}, reference_month={reference_month}, records={records_total}")
 
@@ -165,7 +161,8 @@ def lambda_handler(event, context):
         payload = {
             "type": "WEBHOOK_NOTIFY",
             "pipeline": "fipe_monthly_load",
-            "reference_month": reference_month,
+            "reference_month": reference_month or "unknown",
+            "reference_month_code": reference_month_code or "unknown",
             "records_total": records_total,
             "timestamp": datetime.utcnow().isoformat(),
             "stage": stage
