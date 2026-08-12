@@ -360,3 +360,12 @@ A recomendação original (seção 6) era "reimplantar sa-east-1 com o código a
 ### Lição aprendida
 Antes de redeployar qualquer coisa "para trazer o código atualizado", **diffar o código atual contra o que está deployado função por função**, não só a função relacionada ao bug que está sendo investigado. Um "sync entre branches" anterior (commit `8572928`) introduziu uma regressão grave (Bug 2) que não tinha nada a ver com o problema original do webhook — só foi descoberta porque o deploy falhou por OUTRO motivo (Bug 1) antes de chegar a aplicar essa parte.
 
+### Deploy de sa-east-1: confirmado e funcional (2026-08-12, ~15:15 UTC)
+
+Validado diretamente na AWS após o deploy:
+- `FipeSomaIngestor-unified`: tem `forward_to_queue`/`get_sqs_client`, **não** tem `get_db_connection`. Env vars: `SQS_URL_STG`/`SQS_URL_PRD` com URLs reais, sem nenhuma env var de RDS.
+- `FipeManufacturerLoader-unified`: tem a lógica de `END_OF_RECORDS`.
+- Regra EventBridge recriada com o cron correto (`cron(0 11 1 * ? *)`, dia 1 às 08:00 Brasília) e target aponta corretamente para a Lambda renomeada.
+
+**⚠️ Achado (deferido a pedido do time): o deploy renomeou as 5 Lambdas e as 3 filas SQS de sa-east-1, adicionando o sufixo `-unified`** (ex: `FipeSomaIngestor` → `FipeSomaIngestor-unified`). Não quebra nada funcionalmente — confirmado que o CDK religou tudo automaticamente (event source mappings e EventBridge target apontam corretamente para os nomes novos) — mas contradiz a decisão de design da Melhoria 2 de não usar sufixo em sa-east-1. Causa: `fipe_api_stack.py` usa `f"...{stage}"` nos nomes dos recursos, e `stage="unified"` produz esse sufixo — mais um resíduo do commit `8572928`. **Correção adiada para depois**, junto com a validação end-to-end real (rodar um teste com `FORCE_VEHICLE_MODEL` e confirmar a cascata completa até cada `FipeSomaNotifier` disparar com um `records_total` real).
+
