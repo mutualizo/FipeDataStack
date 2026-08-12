@@ -19,3 +19,8 @@ fipe_api_layer/python
 .settings
 
 .env
+
+# Arquivos de IA (Claude Code) - nunca devem ser commitados/enviados ao repositório
+CLAUDE.md
+.agents/
+docs/superpowers/
