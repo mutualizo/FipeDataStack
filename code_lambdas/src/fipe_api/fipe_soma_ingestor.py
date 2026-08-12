@@ -16,7 +16,7 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # AWS Lambda client para invocar FipeSomaNotifier
-lambda_client = boto3.client('lambda', region_name='sa-east-1')
+lambda_client = boto3.client('lambda')
 
 def get_db_connection():
     # ... (esta função permanece a mesma)
@@ -311,21 +311,29 @@ def lambda_handler(event, context):
 
     logger.info(f"INGESTOR - Processamento concluído: {success_count}/{total_records} mensagens processadas com sucesso.")
 
+    own_region = os.environ.get("AWS_REGION", "unknown")
     if total_failures > 0:
         logger.warning(f"INGESTOR - {total_failures} mensagens falharam e serão reenviadas para a fila.")
-        log_structured("ERROR", "Falhas no processamento de mensagens em us-east-2",
+        log_structured("ERROR", f"Falhas no processamento de mensagens em {own_region}",
                      error_type="DB_WRITE_FAILURE",
-                     details={"failed_count": total_failures, "total": total_records, "region": "us-east-2"})
+                     details={"failed_count": total_failures, "total": total_records, "region": own_region})
     else:
-        log_structured("SUCCESS", "Todos os dados foram persistidos no RDS em us-east-2",
-                     details={"total_messages": total_records, "region": "us-east-2"})
+        log_structured("SUCCESS", f"Todos os dados foram persistidos no RDS em {own_region}",
+                     details={"total_messages": total_records, "region": own_region})
 
     # ⚠️ WEBHOOK DISPARA APENAS QUANDO END_OF_RECORDS É RECEBIDO
+    # Cada ingestor só dispara o SEU PRÓPRIO notifier (STAGE=stg em us-east-2
+    # dispara FipeSomaNotifier-stg; STAGE=prd em us-east-1 dispara -prd). Não
+    # dispara o do outro lado — cada região tem seu próprio RDS independente,
+    # este ingestor não sabe (nem deveria decidir) se o outro lado teve sucesso.
     if end_of_records_received and reference_month and records_processed > 0 and total_failures == 0:
-        logger.info(f"INGESTOR - 🚀 FIM DO PIPELINE MENSAL - Disparando webhooks para STG e PRD")
-        logger.info(f"INGESTOR - Reference month: {reference_month}, Total de registros: {records_processed}")
-        invoke_webhook_notifier(reference_month, records_processed, "stg")
-        invoke_webhook_notifier(reference_month, records_processed, "prd")
+        own_stage = os.environ.get("STAGE", "")
+        if own_stage in ("stg", "prd"):
+            logger.info(f"INGESTOR - 🚀 FIM DO PIPELINE MENSAL - Disparando webhook para {own_stage}")
+            logger.info(f"INGESTOR - Reference month: {reference_month}, Total de registros: {records_processed}")
+            invoke_webhook_notifier(reference_month, records_processed, own_stage)
+        else:
+            logger.warning(f"INGESTOR - STAGE de ambiente desconhecido ('{own_stage}'), não sei qual webhook notifier invocar")
     elif end_of_records_received and total_failures > 0:
         logger.warning(f"INGESTOR - END_OF_RECORDS recebido, mas houve {total_failures} falhas no processamento")
         logger.warning(f"INGESTOR - Webhook NÃO será disparado (dados incompletos ou corrompidos)")
