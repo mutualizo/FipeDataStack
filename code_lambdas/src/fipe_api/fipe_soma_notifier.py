@@ -37,7 +37,7 @@ def get_webhooks_config(stage: str) -> Dict:
         return {"webhooks": []}
 
 
-def call_webhook(url: str, payload: Dict, api_key: str, webhook_name: str, stage: str) -> bool:
+def call_webhook(url: str, payload: Dict, api_key: str, proxy_nonce: str, webhook_name: str, stage: str) -> bool:
     """
     Chama webhook com retry exponencial.
 
@@ -45,6 +45,7 @@ def call_webhook(url: str, payload: Dict, api_key: str, webhook_name: str, stage
         url: URL do webhook
         payload: Dados a enviar
         api_key: Token de autenticação
+        proxy_nonce: Nonce do proxy (lido do Parameter Store, por webhook)
         webhook_name: Nome do webhook para logging
         stage: 'stg' ou 'prd'
 
@@ -58,7 +59,7 @@ def call_webhook(url: str, payload: Dict, api_key: str, webhook_name: str, stage
     headers = {
         "Content-Type": "application/json",
         "X-Webhook-Token": api_key,
-        "proxy_nonce": "C4e8CRNLtji2fea4YHnwVRNDmeZPVRTZ"
+        "proxy_nonce": proxy_nonce
     }
 
     for attempt in range(max_retries):
@@ -174,12 +175,13 @@ def lambda_handler(event, context):
             name = webhook.get("name", "unnamed")
             url = webhook.get("url")
             api_key = webhook.get("api_key", "")
+            proxy_nonce = webhook.get("proxy_nonce", "")
 
             if not url:
                 logger.warning(f"NOTIFIER - Webhook {name} sem URL configurada, pulando...")
                 continue
 
-            if call_webhook(url, payload, api_key, name, stage):
+            if call_webhook(url, payload, api_key, proxy_nonce, name, stage):
                 successful_webhooks += 1
 
         logger.info(f"NOTIFIER - Processamento concluído: {successful_webhooks}/{len(webhooks)} webhooks bem-sucedidos")
