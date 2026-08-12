@@ -21,3 +21,8 @@ fipe_api_layer/python
 
 # ambiente virtual 
 venv/
+
+# Arquivos de IA (Claude Code) - nunca devem ser commitados/enviados ao repositório
+CLAUDE.md
+.agents/
+docs/superpowers/
