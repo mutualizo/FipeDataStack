@@ -203,18 +203,20 @@ def process_message(conn, record):
         # Em caso de erro de banco, a transação já sofreu rollback nas funções auxiliares
         return False # Retorna falha
 
-def invoke_webhook_notifier(reference_month, records_count, stage_target):
+def invoke_webhook_notifier(reference_month, reference_month_code, records_count, stage_target):
     """
     Invoca a Lambda FipeSomaNotifier para disparar webhooks após sucesso do pipeline.
 
     Args:
         reference_month: mês de referência (ex: "2026-05")
+        reference_month_code: código da tabela de referência FIPE (ex: "336")
         records_count: número de registros processados
         stage_target: 'stg' ou 'prd' (ambiente destino dos webhooks)
     """
     try:
         payload = {
             "reference_month": reference_month,
+            "reference_month_code": reference_month_code,
             "records_total": records_count,
             "stage": stage_target
         }
@@ -242,6 +244,7 @@ def lambda_handler(event, context):
     # Lista para armazenar os identificadores das mensagens que falharam
     batch_item_failures = []
     reference_month = None  # Será extraído da primeira mensagem de dados
+    reference_month_code = None  # Código da tabela de referência FIPE (ex: "336")
     records_processed = 0  # Contador de registros processados
     end_of_records_received = False  # Flag para saber se recebeu END_OF_RECORDS
 
@@ -258,6 +261,7 @@ def lambda_handler(event, context):
                 logger.info(f"INGESTOR - END_OF_RECORDS recebido para mês: {message_body.get('reference_month')}")
                 end_of_records_received = True
                 reference_month = message_body.get("reference_month")
+                reference_month_code = message_body.get("reference_month_code")
                 success = True  # Marca como sucesso (não é erro)
                 continue
 
@@ -267,7 +271,7 @@ def lambda_handler(event, context):
                 # Processa a mensagem. A função process_message agora retorna True/False.
                 success = process_message(conn, record)
 
-                # Se processou com sucesso, extrai o reference_month da mensagem
+                # Se processou com sucesso, extrai o reference_month/reference_month_code da mensagem
                 if success and reference_month is None:
                     try:
                         extracted_month = message_body.get("mesReferenciaAno")
@@ -276,6 +280,14 @@ def lambda_handler(event, context):
                             logger.info(f"INGESTOR - Reference month extraído: {reference_month}")
                     except Exception as e:
                         logger.warning(f"INGESTOR - Erro ao extrair reference_month: {str(e)}")
+                if success and reference_month_code is None:
+                    try:
+                        extracted_code = message_body.get("codigoTabelaReferencia")
+                        if extracted_code:
+                            reference_month_code = extracted_code
+                            logger.info(f"INGESTOR - Reference month code extraído: {reference_month_code}")
+                    except Exception as e:
+                        logger.warning(f"INGESTOR - Erro ao extrair reference_month_code: {str(e)}")
 
                 # Incrementar contador de registros processados com sucesso
                 if success:
@@ -330,8 +342,8 @@ def lambda_handler(event, context):
         own_stage = os.environ.get("STAGE", "")
         if own_stage in ("stg", "prd"):
             logger.info(f"INGESTOR - 🚀 FIM DO PIPELINE MENSAL - Disparando webhook para {own_stage}")
-            logger.info(f"INGESTOR - Reference month: {reference_month}, Total de registros: {records_processed}")
-            invoke_webhook_notifier(reference_month, records_processed, own_stage)
+            logger.info(f"INGESTOR - Reference month: {reference_month} (code: {reference_month_code}), Total de registros: {records_processed}")
+            invoke_webhook_notifier(reference_month, reference_month_code, records_processed, own_stage)
         else:
             logger.warning(f"INGESTOR - STAGE de ambiente desconhecido ('{own_stage}'), não sei qual webhook notifier invocar")
     elif end_of_records_received and total_failures > 0:
