@@ -385,11 +385,26 @@ NOTIFIER - Erro ao chamar webhook uniseg: HTTPSConnectionPool(host='uniseg19.stg
 Ambas são questões do lado consumidor (fora desta stack), mas agora há evidência concreta de exatamente
 o que está sendo enviado para investigar com os times donos desses serviços.
 
-### Achado secundário: `reference_month_code` sempre `"unknown"`
+### Achado secundário (corrigido): `reference_month_code` sempre `"unknown"`
 
 Em `fipe_soma_notifier.py:146`, o handler lê `reference_month_code` do evento recebido
 (`event.get("reference_month_code", False)`), mas `invoke_webhook_notifier()` em `fipe_soma_ingestor.py`
-só envia `reference_month`, `records_count` e `stage_target` — nunca `reference_month_code`. Resultado:
-o payload enviado ao webhook **sempre** tem `"reference_month_code": "unknown"`, mesmo sabendo o código
-real (ex. `336`) em outras partes do pipeline. Não corrigido nesta sessão (não foi pedido), mas
-registrado aqui caso o time consumidor dependa desse campo para identificar a tabela de referência FIPE.
+só enviava `reference_month`, `records_count` e `stage_target` — nunca `reference_month_code`. Resultado:
+o payload enviado ao webhook **sempre** tinha `"reference_month_code": "unknown"`, mesmo o código real
+(`336` neste teste) estando disponível desde a mensagem `END_OF_RECORDS`
+(`FipeManufacturerLoader` já envia `"reference_month_code": codigoTabelaReferencia`).
+
+**Fix**: `reference_month_code` agora é extraído do `END_OF_RECORDS` (e, como fallback, de
+`codigoTabelaReferencia` nas mensagens de dados, mesmo padrão já usado para `reference_month`) e
+repassado por `invoke_webhook_notifier()` até o payload do webhook. Aplicado em `production` (commit
+`71697df`) e `stage` (commit `cff3cec`), implantado com sucesso.
+
+### Terceira rodada (2026-08-12, ~21:29 UTC) — confirmação do fix
+
+Teste repetido pela terceira vez (mesmo procedimento), confirmando o payload correto:
+```
+STG: NOTIFIER - Payload enviado: {"type": "WEBHOOK_NOTIFY", "pipeline": "fipe_monthly_load", "reference_month": "agosto/2026", "reference_month_code": 336, "records_total": 9, "timestamp": "...", "stage": "stg"}
+PRD: NOTIFIER - Payload enviado: {"type": "WEBHOOK_NOTIFY", "pipeline": "fipe_monthly_load", "reference_month": "agosto/2026", "reference_month_code": 336, "records_total": 9, "timestamp": "...", "stage": "prd"}
+```
+`reference_month_code: 336` — o código real da tabela de referência FIPE do mês testado (agosto/2026),
+em vez de `"unknown"`. Confirmado nas duas regiões, em múltiplas tentativas de retry do mesmo payload.
