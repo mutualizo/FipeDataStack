@@ -280,6 +280,8 @@ class FipeDataStack(Stack):
         sqs_prd = sqs_forwarding_urls.get("prd") if sqs_forwarding_urls else None
 
         # Criar FipeApiStack (sempre cria, com ou sem RDS local)
+        # slack_webhook_url não é passado aqui: FipeApiStack já busca via
+        # self.node.try_get_context("slack_webhook_url") internamente.
         fipe_api_stack = FipeApiStack(
             self,
             "FipeApiStack",  # Sem sufixo - stack única
@@ -290,7 +292,6 @@ class FipeDataStack(Stack):
             stage=stage,
             sqs_forwarding_stg=sqs_stg,
             sqs_forwarding_prd=sqs_prd,
-            slack_webhook_url=slack_webhook_url
         )
 
         # Adicionar regra de segurança apenas se RDS foi criado localmente

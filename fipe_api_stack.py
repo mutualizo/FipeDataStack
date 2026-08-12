@@ -24,12 +24,14 @@ from aws_cdk import aws_sns as sns
 from aws_cdk import aws_sns_subscriptions as sns_subscriptions
 
 class FipeApiStack(NestedStack):
-    def __init__(self, scope: Construct, construct_id: str, 
-                vpc: ec2.Vpc, 
+    def __init__(self, scope: Construct, construct_id: str,
+                vpc: ec2.Vpc,
                 db_cluster_endpoint: str,
                 db_cluster_port: str,
                 db_secret_arn: str,
                 stage: str = "dev",
+                sqs_forwarding_stg: str = None,
+                sqs_forwarding_prd: str = None,
                 **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
@@ -68,23 +70,29 @@ class FipeApiStack(NestedStack):
             ]
         )
         
-        db_lambda_role.add_to_policy(iam.PolicyStatement(
-            actions=["secretsmanager:GetSecretValue"],
-            resources=[db_secret_arn]
-        ))
-        
+        # Permissões de acesso ao secret do RDS: só fazem sentido quando existe
+        # um RDS local (db_secret_arn é None em sa-east-1, onde create_rds=False
+        # e o ingestor apenas encaminha via SQS, sem acessar nenhum banco).
+        if db_secret_arn:
+            db_lambda_role.add_to_policy(iam.PolicyStatement(
+                actions=["secretsmanager:GetSecretValue"],
+                resources=[db_secret_arn]
+            ))
+
+            secret_name = db_secret_arn.split(':')[-1]
+
+            db_secret = secretsmanager.Secret.from_secret_name_v2(
+                self, f"ImportedDBSecret-{stage}",
+                secret_name
+            )
+            db_secret.grant_read(db_lambda_role)
+            print(f"Permissão para acessar o segredo do banco de dados concedida à role")
+        else:
+            print("Sem RDS local (create_rds=False) - pulando permissões de acesso a secret de banco de dados")
+
         Tags.of(lambda_role).add("stage", stage)
         Tags.of(db_lambda_role).add("stage", stage)
         print(f"Roles para as Lambdas criadas")
-
-        secret_name = db_secret_arn.split(':')[-1]
-        
-        db_secret = secretsmanager.Secret.from_secret_name_v2(
-            self, f"ImportedDBSecret-{stage}", 
-            secret_name
-        )
-        db_secret.grant_read(db_lambda_role)
-        print(f"Permissão para acessar o segredo do banco de dados concedida à role")
         
         manufacturer_dlq = sqs.Queue(self, 
                                      f"FipeManufacturerDLQ-{stage}", 
@@ -156,13 +164,22 @@ class FipeApiStack(NestedStack):
         price_loader_env = {**common_env, 
                             "SQS_INPUT_URL": model_queue.queue_url, 
                             "SQS_OUTPUT_URL": price_queue.queue_url}
-        ingestor_env = {**common_env, 
-                        "SQS_INPUT_URL": price_queue.queue_url, 
-                        "RDS_HOST": db_cluster_endpoint, 
-                        "RDS_PORT": db_cluster_port, 
-                        "RDS_DATABASE": "fipedata", 
-                        "RDS_USER": "postgres", 
-                        "DB_SECRET_ARN": db_secret_arn}
+        ingestor_env = {**common_env,
+                        "SQS_INPUT_URL": price_queue.queue_url}
+        # Variáveis de RDS: só fazem sentido quando existe um RDS local
+        # (None em sa-east-1, onde create_rds=False) - CDK não aceita None
+        # como valor de variável de ambiente da Lambda.
+        if db_cluster_endpoint:
+            ingestor_env["RDS_HOST"] = db_cluster_endpoint
+            ingestor_env["RDS_PORT"] = db_cluster_port
+            ingestor_env["RDS_DATABASE"] = "fipedata"
+            ingestor_env["RDS_USER"] = "postgres"
+            ingestor_env["DB_SECRET_ARN"] = db_secret_arn
+        # Encaminhamento cross-region (sa-east-1: sem RDS local, ingestor só encaminha via SQS)
+        if sqs_forwarding_stg:
+            ingestor_env["SQS_URL_STG"] = sqs_forwarding_stg
+        if sqs_forwarding_prd:
+            ingestor_env["SQS_URL_PRD"] = sqs_forwarding_prd
         
         manufacturer_lambda = lambda_.Function(
             self, 
