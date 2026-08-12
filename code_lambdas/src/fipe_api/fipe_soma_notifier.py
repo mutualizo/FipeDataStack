@@ -66,6 +66,8 @@ def call_webhook(url: str, payload: Dict, api_key: str, proxy_nonce: str, webhoo
         try:
             logger.info(f"NOTIFIER - Tentativa {attempt + 1}/{max_retries} para {webhook_name} em {stage}")
             logger.info(f"NOTIFIER - URL sendo chamada: {url}")
+            logger.info(f"NOTIFIER - Headers enviados: {json.dumps(headers)}")
+            logger.info(f"NOTIFIER - Payload enviado: {json.dumps(payload)}")
             response = requests.post(url, json=payload, headers=headers, timeout=timeout)
 
             if response.status_code == 200:
