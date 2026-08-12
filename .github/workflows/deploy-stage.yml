@@ -1,10 +1,10 @@
 name: Deploy CDK Python Stack - Stage
 
 on:
-  workflow_dispatch:  # Executa somente quando acionada manualmente via GitHub Actions
-  # push:
-  #   branches:
-  #     - stage
+  workflow_dispatch:  # Executa quando acionada manualmente via GitHub Actions
+  push:
+    branches:
+      - stage
 
 jobs:
   deploy:
@@ -34,10 +34,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           npm install -g aws-cdk
-
-      - name: Clean Lambda Layer Directories
-        run: |
-          rm -rf lambda-layer/python fipe_api_layer/python *.zip
 
       - name: Install Layers for Lambdas
         run: |
