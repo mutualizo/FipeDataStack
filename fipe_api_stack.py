@@ -258,6 +258,20 @@ class FipeApiStack(NestedStack):
         print(f"Fonte de evento SQS adicionada à Lambda {price_lambda.function_name}")
         
         print("Criando função FipeSomaIngestor...")
+        # VPC: só faz sentido quando existe um RDS local para o ingestor acessar
+        # (stage/production). Em sa-east-1 (create_rds=False, db_cluster_endpoint=None)
+        # o ingestor só encaminha mensagens via SQS para outras regiões - colocá-lo
+        # numa VPC sem NAT Gateway/VPC Endpoint bloquearia essas chamadas cross-region
+        # com ConnectTimeoutError, já que Lambdas em VPC perdem o acesso à internet
+        # padrão do ambiente de execução.
+        ingestor_vpc_kwargs = {}
+        if db_cluster_endpoint:
+            ingestor_vpc_kwargs = {
+                "vpc": vpc,
+                "vpc_subnets": ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
+                "allow_public_subnet": True,
+                "security_groups": [self.lambda_security_group],
+            }
         ingestor_lambda = lambda_.Function(
             self, f"FipeSomaIngestor-{stage}",
             function_name=f"FipeSomaIngestor-{stage}",
@@ -267,10 +281,7 @@ class FipeApiStack(NestedStack):
             timeout=Duration.minutes(5),
             memory_size=512,
             environment=ingestor_env,
-            vpc=vpc,
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
-            allow_public_subnet=True,
-            security_groups=[self.lambda_security_group],
+            **ingestor_vpc_kwargs,
             role=db_lambda_role,
             layers=[lambda_layer],
             description="FIPE - 04) Função para ingerir dados da FIPE no banco de dados",
