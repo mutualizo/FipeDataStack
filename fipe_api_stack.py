@@ -251,8 +251,12 @@ class FipeApiStack(NestedStack):
             memory_size=512,
             environment=ingestor_env,
             vpc=vpc,
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
-            allow_public_subnet=True,
+            # Subnet privada com rota para NAT Gateway: uma Lambda em VPC nunca recebe IP
+            # público, então uma subnet "pública" (rota direta para Internet Gateway) não
+            # dá acesso à internet/API da Lambda - só uma subnet privada roteada via NAT
+            # Gateway funciona. Isso bloqueava silenciosamente a invocação cross-Lambda do
+            # FipeSomaNotifier (invoke() travava até o timeout de 5 min).
+            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
             security_groups=[self.lambda_security_group],
             role=db_lambda_role,
             layers=[lambda_layer],
