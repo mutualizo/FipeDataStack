@@ -43,8 +43,6 @@ jobs:
             --context allowed_ip=${{ vars.ALLOWED_IP }}
         env:
           AWS_REGION: sa-east-1
-          RDS_HOST_STG: ${{ secrets.RDS_HOST_STG }}
-          RDS_HOST_PRD: ${{ secrets.RDS_HOST_PRD }}
 
       - name: Deploy unified stack to sa-east-1
         run: |
@@ -56,15 +54,12 @@ jobs:
             --verbose
         env:
           AWS_REGION: sa-east-1
-          RDS_HOST_STG: ${{ secrets.RDS_HOST_STG }}
-          RDS_HOST_PRD: ${{ secrets.RDS_HOST_PRD }}
-          CDKPYTHON: python
 
       - name: Output stack information
         if: always()
         run: |
           echo "=== Deployment Summary ==="
           echo "Region: sa-east-1"
-          echo "Stack: FipeDataStack (unified)"
-          echo "Mode: Dual-Write (STG + PRD)"
+          echo "Stack: FipeDataStack (unified, create_rds=False)"
+          echo "Mode: Collects FIPE data, forwards prices via SQS to fipe-price-queue-stg (us-east-2) and fipe-price-queue-prd (us-east-1)"
           cdk output --json 2>/dev/null || echo "Stack outputs not yet available"
