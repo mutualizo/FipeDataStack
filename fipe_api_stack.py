@@ -411,6 +411,15 @@ class FipeApiStack(NestedStack):
                     resources=["*"]
                 )
             )
+            # Auto-invocação: o modo despachante dispara uma execução isolada
+            # por webhook (ver fipe_soma_notifier.py) para que nenhum webhook
+            # no fim da lista fique sem tentativa por falta de timeout.
+            webhook_notifier.add_to_role_policy(
+                iam.PolicyStatement(
+                    actions=["lambda:InvokeFunction"],
+                    resources=[webhook_notifier.function_arn]
+                )
+            )
 
             webhook_notifiers.append(webhook_notifier)
             print(f"Lambda FipeSomaNotifier-stg criada para STG (us-east-2)")
@@ -443,6 +452,15 @@ class FipeApiStack(NestedStack):
                 iam.PolicyStatement(
                     actions=["cloudwatch:PutMetricData"],
                     resources=["*"]
+                )
+            )
+            # Auto-invocação: o modo despachante dispara uma execução isolada
+            # por webhook (ver fipe_soma_notifier.py) para que nenhum webhook
+            # no fim da lista fique sem tentativa por falta de timeout.
+            webhook_notifier.add_to_role_policy(
+                iam.PolicyStatement(
+                    actions=["lambda:InvokeFunction"],
+                    resources=[webhook_notifier.function_arn]
                 )
             )
 
@@ -478,6 +496,12 @@ class FipeApiStack(NestedStack):
                 iam.PolicyStatement(
                     actions=["cloudwatch:PutMetricData"],
                     resources=["*"]
+                )
+            )
+            webhook_notifier.add_to_role_policy(
+                iam.PolicyStatement(
+                    actions=["lambda:InvokeFunction"],
+                    resources=[webhook_notifier.function_arn]
                 )
             )
 
